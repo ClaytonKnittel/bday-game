@@ -4,7 +4,8 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{draw::Draw, entity::Entity, pos::Pos};
 
-type Uid = u64;
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Uid(u64);
 
 pub struct Scene<'a> {
   entities: HashMap<Uid, Box<dyn Entity + 'a>>,
@@ -19,16 +20,17 @@ impl<'a> Scene<'a> {
     }
   }
 
-  pub fn add_entity<E: Entity + 'a>(&mut self, entity: Box<E>) {
+  pub fn add_entity(&mut self, entity: Box<dyn Entity + 'a>) -> Uid {
     let uid = self.next_uid();
     self.entities.insert(uid, entity);
+    uid
   }
 
-  fn next_uid(&mut self) -> u64 {
+  fn next_uid(&mut self) -> Uid {
     once(())
       .cycle()
       .find_map(|_| {
-        let uid = self.rng.next_u64();
+        let uid = Uid(self.rng.next_u64());
         (!self.entities.contains_key(&uid)).then_some(uid)
       })
       .unwrap()
