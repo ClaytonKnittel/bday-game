@@ -5,6 +5,7 @@ use crate::{draw::Draw, pos::Pos};
 
 pub struct Window<W: Write> {
   stdout: W,
+  camera_pos: Pos,
   width: u32,
   height: u32,
   canvas: Vec<Option<Draw>>,
@@ -15,6 +16,7 @@ impl<W: Write> Window<W> {
   pub fn new(stdout: W, width: u32, height: u32) -> Self {
     let mut s = Self {
       stdout,
+      camera_pos: Pos::zero(),
       width,
       height,
       canvas: (0..(width * height)).map(|_| None).collect(),
@@ -31,6 +33,14 @@ impl<W: Write> Window<W> {
 
   pub fn height(&self) -> u32 {
     self.height
+  }
+
+  pub fn camera_pos(&self) -> Pos {
+    self.camera_pos
+  }
+
+  pub fn camera_pos_mut(&mut self) -> &mut Pos {
+    &mut self.camera_pos
   }
 
   fn idx_to_pos(&self, idx: usize) -> (u32, u32) {
@@ -62,6 +72,7 @@ impl<W: Write> Window<W> {
   }
 
   pub fn draw(&mut self, draw: Draw, pos: Pos) {
+    let pos = pos - self.camera_pos;
     let (x, y) = (pos.x, pos.y);
     if 0 > x || x >= self.width() as i32 || 0 > y || y >= self.height() as i32 {
       return;

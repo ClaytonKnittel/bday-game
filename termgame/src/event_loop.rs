@@ -57,7 +57,10 @@ impl<'a> EventLoop<'a> {
     &mut self.scene
   }
 
-  pub fn run_event_loop(&mut self) -> TermgameResult {
+  pub fn run_event_loop<F>(&mut self, mut callback: F) -> TermgameResult
+  where
+    F: FnMut(&mut Scene<'a>, &mut Window<Term<'a>>, usize) -> TermgameResult,
+  {
     let mut stdin = async_stdin().events();
 
     for t in 0usize.. {
@@ -99,6 +102,7 @@ impl<'a> EventLoop<'a> {
       }
       self.window.reset();
       self.scene.tick(t);
+      callback(&mut self.scene, &mut self.window, t)?;
       self.scene.render(&mut self.window);
       self.window.render()?;
       let end = SystemTime::now();
