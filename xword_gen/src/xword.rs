@@ -15,9 +15,9 @@ pub struct XWord {
 
 impl XWord {
   pub fn from_layout(board: &str, bank: HashSet<String>) -> TermgameResult<Self> {
-    let (width, board) = board.lines().try_fold(
-      (None, vec![]),
-      |(width, mut board), line| -> TermgameResult<_> {
+    let (width, height, board) = board.lines().try_fold(
+      (None, 0, vec![]),
+      |(width, height, mut board), line| -> TermgameResult<_> {
         let line = line.trim();
         board.extend(
           line
@@ -41,7 +41,7 @@ impl XWord {
           }
         }
 
-        Ok((Some(line.len()), board))
+        Ok((Some(line.len()), height + 1, board))
       },
     )?;
 
@@ -49,11 +49,12 @@ impl XWord {
       board,
       bank,
       width: width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32,
-      height: 0,
+      height: height as u32,
     })
   }
 
   pub fn available(&self, pos: Pos) -> bool {
+    assert!(pos.x >= 0 && pos.x < self.width as i32 && pos.y >= 0 && pos.y < self.height as i32);
     *self
       .board
       .get((pos.x + pos.y * self.width as i32) as usize)
