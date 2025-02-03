@@ -1,7 +1,7 @@
 use std::io::Write;
 use termion::cursor;
 
-use crate::draw::Draw;
+use crate::{draw::Draw, pos::Pos};
 
 pub struct Window<W: Write> {
   stdout: W,
@@ -20,6 +20,7 @@ impl<W: Write> Window<W> {
       canvas: (0..(width * height)).map(|_| None).collect(),
       prev_canvas: (0..(width * height)).map(|_| None).collect(),
     };
+    #[allow(clippy::expect_used)]
     s.allocate().expect("Failed to initialize window");
     s
   }
@@ -41,11 +42,13 @@ impl<W: Write> Window<W> {
   }
 
   fn get(&self, x: u32, y: u32) -> &Option<Draw> {
+    #[allow(clippy::unwrap_used)]
     self.canvas.get(self.idx(x, y)).unwrap()
   }
 
   fn get_mut(&mut self, x: u32, y: u32) -> &mut Option<Draw> {
     let idx = self.idx(x, y);
+    #[allow(clippy::unwrap_used)]
     self.canvas.get_mut(idx).unwrap()
   }
 
@@ -62,17 +65,20 @@ impl<W: Write> Window<W> {
     write!(self.stdout, "{}", cursor::Goto(1, 1))
   }
 
-  pub fn draw(&mut self, draw: Draw, pos: (u32, u32)) {
-    *self.get_mut(pos.0, pos.1) = Some(self.get(pos.0, pos.1).clone().map_or(
-      draw.clone(),
-      |cur_el| {
-        if cur_el.z_idx() < draw.z_idx() {
-          draw
-        } else {
-          cur_el
-        }
-      },
-    ))
+  pub fn draw(&mut self, draw: Draw, pos: Pos) {
+    let (x, y) = (pos.x, pos.y);
+    if 0 > x || x >= self.width() as i32 || 0 > y || y >= self.height() as i32 {
+      return;
+    }
+
+    let (x, y) = (x as u32, y as u32);
+    *self.get_mut(x, y) = Some(self.get(x, y).clone().map_or(draw.clone(), |cur_el| {
+      if cur_el.z_idx() < draw.z_idx() {
+        draw
+      } else {
+        cur_el
+      }
+    }))
   }
 
   pub fn render(&mut self) -> std::io::Result<()> {

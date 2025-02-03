@@ -73,20 +73,20 @@ impl<'a> EventLoop<'a> {
           Ok(Event::Mouse(me)) => match me {
             MouseEvent::Press(_, x, y) => {
               self.scene.click(Pos {
-                x: x as u32 - 1,
-                y: y as u32 - 1,
+                x: x as i32 - 1,
+                y: y as i32 - 1,
               });
             }
             MouseEvent::Hold(x, y) => {
               self.scene.drag(Pos {
-                x: x as u32 - 1,
-                y: y as u32 - 1,
+                x: x as i32 - 1,
+                y: y as i32 - 1,
               });
             }
             MouseEvent::Release(x, y) => {
               self.scene.release(Pos {
-                x: x as u32 - 1,
-                y: y as u32 - 1,
+                x: x as i32 - 1,
+                y: y as i32 - 1,
               });
             }
           },

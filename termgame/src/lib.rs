@@ -1,4 +1,4 @@
-#![warn(clippy::unwrap_used, clippy::expect_used)]
+#![deny(clippy::unwrap_used, clippy::expect_used)]
 
 pub mod draw;
 pub mod entity;
