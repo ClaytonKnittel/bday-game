@@ -1,4 +1,5 @@
-use termgame::{color, draw::Draw, entity::Entity, pos::Pos};
+use termgame::{color, draw::Draw, entity::Entity};
+use util::pos::Pos;
 
 const Z_IDX: i32 = 5;
 

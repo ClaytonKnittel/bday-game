@@ -13,14 +13,12 @@ use termion::{
   raw::{IntoRawMode, RawTerminal},
   screen::{AlternateScreen, IntoAlternateScreen},
 };
-
-use crate::{
-  entity::Entity,
+use util::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
-  scene::Scene,
-  window::Window,
 };
+
+use crate::{entity::Entity, scene::Scene, window::Window};
 
 type Term<'a> = HideCursor<MouseTerminal<AlternateScreen<RawTerminal<StdoutLock<'a>>>>>;
 

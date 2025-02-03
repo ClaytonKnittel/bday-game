@@ -6,15 +6,17 @@ use std::{
 
 #[derive(Debug)]
 pub enum TermgameError {
-  Render(String),
   Internal(String),
+  Parse(String),
+  Render(String),
 }
 
 impl Display for TermgameError {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      TermgameError::Render(msg) => write!(f, "Render error: {msg}"),
       TermgameError::Internal(msg) => write!(f, "Internal error: {msg}"),
+      TermgameError::Parse(msg) => write!(f, "Parse error: {msg}"),
+      TermgameError::Render(msg) => write!(f, "Render error: {msg}"),
     }
   }
 }

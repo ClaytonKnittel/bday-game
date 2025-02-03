@@ -1,8 +1,9 @@
 use std::{any::Any, io::Write};
 
 use termion::event::Key;
+use util::{error::TermgameResult, pos::Pos};
 
-use crate::{draw::Draw, error::TermgameResult, pos::Pos, window::Window};
+use crate::{draw::Draw, window::Window};
 
 pub trait Entity: Any {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_>;

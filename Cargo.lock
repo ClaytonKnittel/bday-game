@@ -7,6 +7,7 @@ name = "bday-game"
 version = "0.1.0"
 dependencies = [
  "termgame",
+ "util",
 ]
 
 [[package]]
@@ -152,6 +153,7 @@ version = "0.1.0"
 dependencies = [
  "rand",
  "termion",
+ "util",
 ]
 
 [[package]]
@@ -171,6 +173,10 @@ name = "unicode-ident"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a210d160f08b701c8721ba1c726c11662f877ea6b7094007e1ca9a1041945034"
+
+[[package]]
+name = "util"
+version = "0.1.0"
 
 [[package]]
 name = "wasi"

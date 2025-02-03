@@ -1,8 +1,7 @@
 use std::iter;
 
-use termgame::{
-  color::AnsiValue, draw::Draw, entity::Entity, error::TermgameResult, pos::Pos, Key,
-};
+use termgame::{color::AnsiValue, draw::Draw, entity::Entity, Key};
+use util::{error::TermgameResult, pos::Pos};
 
 const Z_IDX: i32 = 100;
 

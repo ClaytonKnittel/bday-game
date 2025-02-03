@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 termgame = { path = "./termgame" }
+util = { path = "./util" }

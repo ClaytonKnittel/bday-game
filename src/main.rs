@@ -5,7 +5,8 @@ mod pc;
 
 use crossword::Crossword;
 use pc::Pc;
-use termgame::{color::AnsiValue, error::TermgameResult, event_loop::EventLoop, pos::Pos};
+use termgame::{color::AnsiValue, event_loop::EventLoop};
+use util::{error::TermgameResult, pos::Pos};
 
 fn main() -> TermgameResult {
   let mut ev = EventLoop::new()?;

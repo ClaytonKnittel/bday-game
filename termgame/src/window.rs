@@ -1,7 +1,8 @@
 use std::io::Write;
 use termion::cursor;
+use util::pos::Pos;
 
-use crate::{draw::Draw, pos::Pos};
+use crate::draw::Draw;
 
 pub struct Window<W: Write> {
   stdout: W,

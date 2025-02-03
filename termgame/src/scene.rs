@@ -2,13 +2,12 @@ use std::{collections::HashMap, fmt::Display, iter::once};
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use termion::event::Key;
-
-use crate::{
-  draw::Draw,
-  entity::Entity,
+use util::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
 };
+
+use crate::{draw::Draw, entity::Entity};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Uid(u64);
