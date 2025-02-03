@@ -43,7 +43,9 @@ impl<'a> EventLoop<'a> {
         .into_raw_mode()?
         .into_alternate_screen()?,
     ));
-    let window = Window::new(stdout, 120, 40);
+
+    let (width, height) = termion::terminal_size()?;
+    let window = Window::new(stdout, width as u32, height as u32);
     Ok(Self {
       window,
       scene: Scene::new(),
