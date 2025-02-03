@@ -57,7 +57,7 @@ impl<'a> EventLoop<'a> {
     &mut self.scene
   }
 
-  fn do_loop(&mut self) -> TermgameResult {
+  pub fn run_event_loop(&mut self) -> TermgameResult {
     let mut stdin = async_stdin().events();
 
     for t in 0usize.. {
@@ -93,8 +93,8 @@ impl<'a> EventLoop<'a> {
               });
             }
           },
-          Err(_) => return Ok(()),
-          _ => {}
+          Ok(_) => {}
+          Err(err) => return Err(err.into()),
         }
       }
       self.window.reset();
@@ -108,11 +108,5 @@ impl<'a> EventLoop<'a> {
     }
 
     unreachable!();
-  }
-
-  pub fn run_event_loop(&mut self) -> TermgameResult {
-    let result = self.do_loop();
-    self.window.cleanup()?;
-    result
   }
 }

@@ -61,10 +61,6 @@ impl<W: Write> Window<W> {
     self.canvas = (0..(self.width * self.height)).map(|_| None).collect();
   }
 
-  pub fn cleanup(&mut self) -> std::io::Result<()> {
-    write!(self.stdout, "{}", cursor::Goto(1, 1))
-  }
-
   pub fn draw(&mut self, draw: Draw, pos: Pos) {
     let (x, y) = (pos.x, pos.y);
     if 0 > x || x >= self.width() as i32 || 0 > y || y >= self.height() as i32 {
