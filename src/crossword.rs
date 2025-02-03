@@ -1,4 +1,4 @@
-use termgame::{color, draw::Draw, entity::Entity, pos::Pos, Key};
+use termgame::{color, draw::Draw, entity::Entity, pos::Pos};
 
 const Z_IDX: i32 = 5;
 
@@ -39,11 +39,10 @@ impl Entity for Crossword {
     }))
   }
 
-  fn tick(&mut self, _t: usize) {}
-
-  fn keypress(&mut self, _key: Key) {}
-
-  fn click(&mut self, _pos: Pos) {}
-  fn drag(&mut self, _pos: Pos) {}
-  fn release(&mut self, _pos: Pos) {}
+  fn as_any(&self) -> &dyn std::any::Any {
+    self
+  }
+  fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+    self
+  }
 }

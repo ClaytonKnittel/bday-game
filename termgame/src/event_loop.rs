@@ -31,7 +31,7 @@ pub struct EventLoopOptions {
 
 pub struct EventLoop<'a> {
   window: Window<Term<'a>>,
-  scene: Scene<'a>,
+  scene: Scene,
   done: Mutex<bool>,
 }
 
@@ -53,13 +53,13 @@ impl<'a> EventLoop<'a> {
     })
   }
 
-  pub fn scene(&mut self) -> &mut Scene<'a> {
+  pub fn scene(&mut self) -> &mut Scene {
     &mut self.scene
   }
 
   pub fn run_event_loop<F>(&mut self, mut callback: F) -> TermgameResult
   where
-    F: FnMut(&mut Scene<'a>, &mut Window<Term<'a>>, usize) -> TermgameResult,
+    F: FnMut(&mut Scene, &mut Window<Term<'a>>, usize) -> TermgameResult,
   {
     let mut stdin = async_stdin().events();
 
@@ -73,35 +73,34 @@ impl<'a> EventLoop<'a> {
         return Ok(());
       }
       for evt in stdin.by_ref() {
-        match evt {
-          Ok(Event::Key(Key::Esc)) => return Ok(()),
-          Ok(Event::Key(key)) => self.scene.keypress(key),
-          Ok(Event::Mouse(me)) => match me {
+        match evt? {
+          Event::Key(Key::Esc) => return Ok(()),
+          Event::Key(key) => self.scene.keypress(key)?,
+          Event::Mouse(me) => match me {
             MouseEvent::Press(_, x, y) => {
               self.scene.click(Pos {
                 x: x as i32 - 1,
                 y: y as i32 - 1,
-              });
+              })?;
             }
             MouseEvent::Hold(x, y) => {
               self.scene.drag(Pos {
                 x: x as i32 - 1,
                 y: y as i32 - 1,
-              });
+              })?;
             }
             MouseEvent::Release(x, y) => {
               self.scene.release(Pos {
                 x: x as i32 - 1,
                 y: y as i32 - 1,
-              });
+              })?;
             }
           },
-          Ok(_) => {}
-          Err(err) => return Err(err.into()),
+          data => return Err(TermgameError::Internal(format!("got unknown key {data:?}")).into()),
         }
       }
       self.window.reset();
-      self.scene.tick(t);
+      self.scene.tick(t)?;
       callback(&mut self.scene, &mut self.window, t)?;
       self.scene.render(&mut self.window);
       self.window.render()?;

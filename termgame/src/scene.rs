@@ -1,27 +1,62 @@
-use std::{collections::HashMap, iter::once};
+use std::{collections::HashMap, fmt::Display, iter::once};
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 use termion::event::Key;
 
-use crate::{draw::Draw, entity::Entity, pos::Pos};
+use crate::{
+  draw::Draw,
+  entity::Entity,
+  error::{TermgameError, TermgameResult},
+  pos::Pos,
+};
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Uid(u64);
 
-pub struct Scene<'a> {
-  entities: HashMap<Uid, Box<dyn Entity + 'a>>,
+impl Display for Uid {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+pub struct Scene {
+  entities: HashMap<Uid, Box<dyn Entity>>,
   rng: StdRng,
 }
 
-impl<'a> Scene<'a> {
+impl Scene {
   pub fn new() -> Self {
     Self::default()
   }
 
-  pub fn add_entity(&mut self, entity: Box<dyn Entity + 'a>) -> Uid {
+  pub fn add_entity(&mut self, entity: Box<dyn Entity>) -> Uid {
     let uid = self.next_uid();
     self.entities.insert(uid, entity);
     uid
+  }
+
+  pub fn entity<E: Entity>(&self, uid: Uid) -> TermgameResult<&E> {
+    self
+      .entities
+      .get(&uid)
+      .and_then(|entity| entity.as_any().downcast_ref::<E>())
+      .ok_or_else(|| TermgameError::Internal(format!("Uid not found: {uid}")).into())
+  }
+
+  pub fn entity_mut<E: Entity>(&mut self, uid: Uid) -> TermgameResult<&mut E> {
+    self
+      .entities
+      .get_mut(&uid)
+      .and_then(|entity| entity.as_any_mut().downcast_mut::<E>())
+      .ok_or_else(|| TermgameError::Internal(format!("Uid not found: {uid}")).into())
+  }
+
+  pub fn delete_entity(&mut self, uid: Uid) -> TermgameResult {
+    self
+      .entities
+      .remove(&uid)
+      .map(|_| ())
+      .ok_or_else(|| TermgameError::Internal(format!("Uid not found: {uid}")).into())
   }
 
   fn next_uid(&mut self) -> Uid {
@@ -35,20 +70,19 @@ impl<'a> Scene<'a> {
       .unwrap()
   }
 
-  fn visit_mut<'b, F, T>(&mut self, mut f: F, arg: T)
+  fn visit_mut<F, T>(&mut self, mut f: F, arg: T) -> TermgameResult
   where
-    'a: 'b,
-    F: FnMut(&mut (dyn Entity + 'b), T),
+    F: FnMut(&mut dyn Entity, T) -> TermgameResult,
     T: Clone,
   {
     self
       .entities
       .values_mut()
-      .for_each(|entity| f(entity.as_mut(), arg.clone()));
+      .try_for_each(|entity| f(entity.as_mut(), arg.clone()))
   }
 }
 
-impl Entity for Scene<'_> {
+impl Entity for Scene {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
     Box::new(
       self
@@ -58,28 +92,35 @@ impl Entity for Scene<'_> {
     )
   }
 
-  fn tick(&mut self, t: usize) {
-    self.visit_mut(Entity::tick, t);
+  fn as_any(&self) -> &dyn std::any::Any {
+    self
+  }
+  fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+    self
   }
 
-  fn keypress(&mut self, key: Key) {
-    self.visit_mut(Entity::keypress, key);
+  fn tick(&mut self, t: usize) -> TermgameResult {
+    self.visit_mut(Entity::tick, t)
   }
 
-  fn click(&mut self, pos: Pos) {
-    self.visit_mut(Entity::click, pos);
+  fn keypress(&mut self, key: Key) -> TermgameResult {
+    self.visit_mut(Entity::keypress, key)
   }
 
-  fn drag(&mut self, pos: Pos) {
-    self.visit_mut(Entity::drag, pos);
+  fn click(&mut self, pos: Pos) -> TermgameResult {
+    self.visit_mut(Entity::click, pos)
   }
 
-  fn release(&mut self, pos: Pos) {
-    self.visit_mut(Entity::release, pos);
+  fn drag(&mut self, pos: Pos) -> TermgameResult {
+    self.visit_mut(Entity::drag, pos)
+  }
+
+  fn release(&mut self, pos: Pos) -> TermgameResult {
+    self.visit_mut(Entity::release, pos)
   }
 }
 
-impl Default for Scene<'_> {
+impl Default for Scene {
   fn default() -> Self {
     Self {
       entities: HashMap::new(),
