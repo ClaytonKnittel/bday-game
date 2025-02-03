@@ -36,7 +36,7 @@ impl Entity for Track {
 }
 
 fn main() -> TermgameResult {
-  let mut ev = EventLoop::new();
+  let mut ev = EventLoop::new()?;
   ev.scene().add_entity(Box::new(Track::new(0, 100)));
   ev.run_event_loop()
 }

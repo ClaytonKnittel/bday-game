@@ -1,3 +1,5 @@
+#![warn(clippy::unwrap_used, clippy::expect_used)]
+
 pub mod draw;
 pub mod entity;
 pub mod error;
