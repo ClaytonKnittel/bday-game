@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use termgame::{
   color, draw::Draw, entity::Entity, error::TermgameResult, event_loop::EventLoop, pos::Pos,
 };
