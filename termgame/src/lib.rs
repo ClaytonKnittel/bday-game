@@ -8,4 +8,4 @@ pub mod pos;
 pub mod scene;
 pub mod window;
 
-pub use termion::color;
+pub use termion::{color, event::Key};

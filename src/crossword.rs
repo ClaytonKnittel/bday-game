@@ -1,4 +1,4 @@
-use termgame::{color, draw::Draw, entity::Entity, pos::Pos};
+use termgame::{color, draw::Draw, entity::Entity, pos::Pos, Key};
 
 const Z_IDX: i32 = 5;
 
@@ -40,6 +40,8 @@ impl Entity for Crossword {
   }
 
   fn tick(&mut self, _t: usize) {}
+
+  fn keypress(&mut self, _key: Key) {}
 
   fn click(&mut self, _pos: Pos) {}
   fn drag(&mut self, _pos: Pos) {}

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, iter::once};
 
 use rand::{rngs::StdRng, RngCore, SeedableRng};
+use termion::event::Key;
 
 use crate::{draw::Draw, entity::Entity, pos::Pos};
 
@@ -59,6 +60,10 @@ impl Entity for Scene<'_> {
 
   fn tick(&mut self, t: usize) {
     self.visit_mut(Entity::tick, t);
+  }
+
+  fn keypress(&mut self, key: Key) {
+    self.visit_mut(Entity::keypress, key);
   }
 
   fn click(&mut self, pos: Pos) {

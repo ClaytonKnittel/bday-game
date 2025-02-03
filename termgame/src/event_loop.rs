@@ -71,7 +71,8 @@ impl<'a> EventLoop<'a> {
       }
       for evt in stdin.by_ref() {
         match evt {
-          Ok(Event::Key(Key::Char('q'))) => return Ok(()),
+          Ok(Event::Key(Key::Esc)) => return Ok(()),
+          Ok(Event::Key(key)) => self.scene.keypress(key),
           Ok(Event::Mouse(me)) => match me {
             MouseEvent::Press(_, x, y) => {
               self.scene.click(Pos {

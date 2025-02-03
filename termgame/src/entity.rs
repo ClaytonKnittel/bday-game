@@ -1,11 +1,15 @@
 use std::io::Write;
 
+use termion::event::Key;
+
 use crate::{draw::Draw, pos::Pos, window::Window};
 
 pub trait Entity {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_>;
 
   fn tick(&mut self, t: usize);
+
+  fn keypress(&mut self, key: Key);
 
   fn click(&mut self, pos: Pos);
   fn drag(&mut self, pos: Pos);
