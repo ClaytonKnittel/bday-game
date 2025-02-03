@@ -1,4 +1,4 @@
 mod dlx;
-mod xword_solver;
+mod xword;
 
 fn main() {}
