@@ -6,11 +6,12 @@ use termion::{
   event::{Event, Key, MouseEvent},
   input::{MouseTerminal, TermRead},
   raw::{IntoRawMode, RawTerminal},
+  screen::{AlternateScreen, IntoAlternateScreen},
 };
 
 use crate::{entity::Entity, error::TermgameResult, pos::Pos, scene::Scene, window::Window};
 
-type Term<'a> = HideCursor<MouseTerminal<RawTerminal<StdoutLock<'a>>>>;
+type Term<'a> = HideCursor<MouseTerminal<AlternateScreen<RawTerminal<StdoutLock<'a>>>>>;
 
 pub struct EventLoopOptions {
   // TODO:
@@ -19,25 +20,33 @@ pub struct EventLoopOptions {
 
 pub struct EventLoop<'a> {
   window: Window<Term<'a>>,
+  scene: Scene<'a>,
 }
 
 impl<'a> EventLoop<'a> {
   pub fn new() -> Self {
     let stdout = HideCursor::from(MouseTerminal::from(
-      std::io::stdout().lock().into_raw_mode().unwrap(),
+      std::io::stdout()
+        .lock()
+        .into_raw_mode()
+        .unwrap()
+        .into_alternate_screen()
+        .unwrap(),
     ));
     let window = Window::new(stdout, 120, 40);
-    Self { window }
+    Self {
+      window,
+      scene: Scene::new(),
+    }
   }
 
-  pub fn run_event_loop<F>(&mut self, mut callback: F) -> TermgameResult
-  where
-    F: FnMut(&mut Scene) -> bool,
-  {
+  pub fn scene(&mut self) -> &mut Scene<'a> {
+    &mut self.scene
+  }
+
+  pub fn run_event_loop(&mut self) -> TermgameResult {
     let mut stdin = async_stdin().events();
     let done = Mutex::new(false);
-
-    let mut scene = Scene::new();
 
     'outer: for t in 0usize.. {
       let start = SystemTime::now();
@@ -49,19 +58,19 @@ impl<'a> EventLoop<'a> {
           Ok(Event::Key(Key::Char('q'))) => break 'outer,
           Ok(Event::Mouse(me)) => match me {
             MouseEvent::Press(_, x, y) => {
-              scene.click(Pos {
+              self.scene.click(Pos {
                 x: x as u32 - 1,
                 y: y as u32 - 1,
               });
             }
             MouseEvent::Hold(x, y) => {
-              scene.drag(Pos {
+              self.scene.drag(Pos {
                 x: x as u32 - 1,
                 y: y as u32 - 1,
               });
             }
             MouseEvent::Release(x, y) => {
-              scene.release(Pos {
+              self.scene.release(Pos {
                 x: x as u32 - 1,
                 y: y as u32 - 1,
               });
@@ -72,8 +81,8 @@ impl<'a> EventLoop<'a> {
         }
       }
       self.window.reset();
-      scene.tick(t);
-      scene.render(&mut self.window);
+      self.scene.tick(t);
+      self.scene.render(&mut self.window);
       self.window.render()?;
       let end = SystemTime::now();
 

@@ -1,51 +1,42 @@
-fn main() {
-  let stdout = HideCursor::from(MouseTerminal::from(
-    std::io::stdout().lock().into_raw_mode().unwrap(),
-  ));
-  let mut window = window::Window::new(stdout, 120, 40);
-  let mut stdin = async_stdin().events();
-  let done = Mutex::new(false);
+use termgame::{
+  color, draw::Draw, entity::Entity, error::TermgameResult, event_loop::EventLoop, pos::Pos,
+};
 
-  let mut r = rngs::StdRng::seed_from_u64(27418995609531717u64);
+const Z_IDX: i32 = 20;
 
-  let bunny = Bunny::new(window.width(), window.height(), &mut r, &done);
+pub struct Track {
+  y: u32,
+  width: u32,
+}
 
-  let mut scene = Scene::new();
-  scene.add_entity(Box::new(bunny));
+impl Track {
+  pub fn new(y: u32, width: u32) -> Self {
+    Self { y, width }
+  }
+}
 
-  'outer: for t in 0usize.. {
-    let start = SystemTime::now();
-    if *done.lock().unwrap() {
-      break;
-    }
-    for evt in stdin.by_ref() {
-      match evt {
-        Ok(Event::Key(Key::Char('q'))) => break 'outer,
-        Ok(Event::Mouse(me)) => match me {
-          MouseEvent::Press(_, x, y) => {
-            scene.click(x as u32 - 1, y as u32 - 1);
-          }
-          MouseEvent::Hold(x, y) => {
-            scene.drag(x as u32 - 1, y as u32 - 1);
-          }
-          MouseEvent::Release(x, y) => {
-            scene.release(x as u32 - 1, y as u32 - 1);
-          }
-        },
-        Err(_) => break 'outer,
-        _ => {}
-      }
-    }
-    window.reset();
-    scene.tick(t);
-    scene.render(&mut window);
-    window.render().expect("Failed 2 render");
-    let end = SystemTime::now();
+impl Entity for Track {
+  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, (i32, i32))> + '_> {
+    Box::new((0..self.width).map(|x| {
+      let tile = if x % 4 == 1 { '+' } else { '=' };
+      let col = color::AnsiValue::grayscale(20);
 
-    let sleep_duration =
-      std::time::Duration::from_millis(20).saturating_sub(end.duration_since(start).unwrap());
-    std::thread::sleep(sleep_duration);
+      (
+        Draw::new(tile).with_fg(col).with_z(Z_IDX),
+        (x as i32, self.y as i32),
+      )
+    }))
   }
 
-  window.cleanup().expect("Failed to cleanup");
+  fn tick(&mut self, _t: usize) {}
+
+  fn click(&mut self, _pos: Pos) {}
+  fn drag(&mut self, _pos: Pos) {}
+  fn release(&mut self, _pos: Pos) {}
+}
+
+fn main() -> TermgameResult {
+  let mut ev = EventLoop::new();
+  ev.scene().add_entity(Box::new(Track::new(0, 100)));
+  ev.run_event_loop()
 }
