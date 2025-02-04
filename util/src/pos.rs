@@ -1,6 +1,6 @@
 use std::ops::{Add, Sub};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pos {
   pub x: i32,
   pub y: i32,
@@ -9,6 +9,13 @@ pub struct Pos {
 impl Pos {
   pub const fn zero() -> Self {
     Self { x: 0, y: 0 }
+  }
+
+  pub const fn transpose(&self) -> Self {
+    Self {
+      x: self.y,
+      y: self.x,
+    }
   }
 }
 
