@@ -77,7 +77,9 @@ impl XWord {
     self.board.get(pos).is_some_and(|&available| available)
   }
 
-  fn iterate_row_clues(&self) -> impl Iterator<Item = XWordEntry> + use<'_> {
+  fn iterate_board_row_clues<'a, G: Gridlike<bool> + 'a>(
+    board: G,
+  ) -> impl Iterator<Item = XWordEntry> + 'a {
     struct EmptySequences<'a, I> {
       x: u32,
       y: u32,
@@ -94,7 +96,6 @@ impl XWord {
       fn next(&mut self) -> Option<XWordEntry> {
         let iter = self.iter.as_mut()?;
         let number = *self.clue_number;
-        *self.clue_number += 1;
 
         loop {
           self.x += 1;
@@ -104,6 +105,7 @@ impl XWord {
             None => return None,
           }
         }
+        *self.clue_number += 1;
         let mut length = 1;
         let pos = Pos {
           x: (self.x - 1) as i32,
@@ -130,18 +132,29 @@ impl XWord {
       }
     }
 
-    (0..self.board.height())
+    (0..board.height())
       .scan(0, move |clue_number, y| {
         let result: Vec<_> = EmptySequences {
           x: 0,
           y,
           clue_number,
-          iter: Some(self.board.iter_row(y).cloned()),
+          iter: Some(board.iter_row(y).cloned()),
         }
         .collect();
         Some(result.into_iter())
       })
       .flatten()
+  }
+
+  fn iterate_row_clues(&self) -> impl Iterator<Item = XWordEntry> + use<'_> {
+    Self::iterate_board_row_clues(&self.board)
+  }
+
+  fn iterate_col_clues(&self) -> impl Iterator<Item = XWordEntry> + use<'_> {
+    Self::iterate_board_row_clues(self.board.transpose()).map(|entry| XWordEntry {
+      pos: entry.pos.transpose(),
+      ..entry
+    })
   }
 
   pub fn solve(&self) -> Grid<Option<char>> {
@@ -268,24 +281,24 @@ mod tests {
     let xword = xword.unwrap();
     expect_that!(
       xword
-        .iterate_row_clues()
+        .iterate_col_clues()
         .map(|clue| clue.number)
         .collect::<Vec<_>>(),
       container_eq([0, 1])
     );
     expect_that!(
       xword
-        .iterate_row_clues()
+        .iterate_col_clues()
         .map(|clue| clue.length)
         .collect::<Vec<_>>(),
-      container_eq([2, 1])
+      container_eq([1, 2])
     );
     expect_that!(
       xword
-        .iterate_row_clues()
+        .iterate_col_clues()
         .map(|clue| clue.pos)
         .collect::<Vec<_>>(),
-      container_eq([Pos::zero(), Pos { x: 1, y: 1 }])
+      container_eq([Pos::zero(), Pos { x: 1, y: 0 }])
     );
   }
 }

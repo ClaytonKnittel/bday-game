@@ -9,7 +9,6 @@ pub trait Gridlike<T> {
   fn in_bounds(&self, pos: Pos) -> bool;
 
   fn get(&self, pos: Pos) -> Option<&T>;
-  fn get_mut(&mut self, pos: Pos) -> Option<&mut T>;
 
   fn iter_row<'a, 'b>(&'a self, y: u32) -> impl Iterator<Item = &'b T>
   where
@@ -20,7 +19,12 @@ pub trait Gridlike<T> {
     'a: 'b,
     T: 'a;
 
-  fn transpose(&mut self) -> impl Gridlike<T>;
+  fn transpose(&self) -> impl Gridlike<T>;
+}
+
+pub trait MutGridlike<T>: Gridlike<T> {
+  fn get_mut(&mut self, pos: Pos) -> Option<&mut T>;
+  fn transpose_mut(&mut self) -> impl MutGridlike<T>;
 }
 
 #[derive(Clone, Debug)]
@@ -91,16 +95,6 @@ impl<T> Gridlike<T> for Grid<T> {
       .flatten()
   }
 
-  fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
-    self
-      .in_bounds(pos)
-      .then(|| {
-        let index = self.idx(pos);
-        self.grid.get_mut(index)
-      })
-      .flatten()
-  }
-
   fn iter_row<'a, 'b>(&'a self, y: u32) -> impl Iterator<Item = &'b T>
   where
     'a: 'b,
@@ -119,13 +113,29 @@ impl<T> Gridlike<T> for Grid<T> {
     (0..self.height()).flat_map(move |y| self.get(Pos { x, y: y as i32 }))
   }
 
-  fn transpose(&mut self) -> impl Gridlike<T> {
+  fn transpose(&self) -> impl Gridlike<T> {
     TransposeGrid { grid: self }
   }
 }
 
+impl<T> MutGridlike<T> for Grid<T> {
+  fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
+    self
+      .in_bounds(pos)
+      .then(|| {
+        let index = self.idx(pos);
+        self.grid.get_mut(index)
+      })
+      .flatten()
+  }
+
+  fn transpose_mut(&mut self) -> impl MutGridlike<T> {
+    MutTransposeGrid { grid: self }
+  }
+}
+
 pub struct TransposeGrid<'a, T> {
-  grid: &'a mut Grid<T>,
+  grid: &'a Grid<T>,
 }
 
 impl<'a, T> Gridlike<T> for TransposeGrid<'a, T> {
@@ -145,8 +155,46 @@ impl<'a, T> Gridlike<T> for TransposeGrid<'a, T> {
     self.grid.get(pos.transpose())
   }
 
-  fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
-    self.grid.get_mut(pos.transpose())
+  fn iter_row<'b, 'c>(&'b self, y: u32) -> impl Iterator<Item = &'c T>
+  where
+    'b: 'c,
+    T: 'b,
+  {
+    self.grid.iter_col(y)
+  }
+
+  fn iter_col<'b, 'c>(&'b self, x: u32) -> impl Iterator<Item = &'c T>
+  where
+    'b: 'c,
+    T: 'b,
+  {
+    self.grid.iter_row(x)
+  }
+
+  fn transpose(&self) -> impl Gridlike<T> {
+    &self.grid
+  }
+}
+
+pub struct MutTransposeGrid<'a, T> {
+  grid: &'a mut Grid<T>,
+}
+
+impl<'a, T> Gridlike<T> for MutTransposeGrid<'a, T> {
+  fn width(&self) -> u32 {
+    self.grid.height()
+  }
+
+  fn height(&self) -> u32 {
+    self.grid.width()
+  }
+
+  fn in_bounds(&self, pos: Pos) -> bool {
+    self.grid.in_bounds(pos.transpose())
+  }
+
+  fn get(&self, pos: Pos) -> Option<&T> {
+    self.grid.get(pos.transpose())
   }
 
   fn iter_row<'b, 'c>(&'b self, y: u32) -> impl Iterator<Item = &'c T>
@@ -165,8 +213,53 @@ impl<'a, T> Gridlike<T> for TransposeGrid<'a, T> {
     self.grid.iter_row(x)
   }
 
-  fn transpose(&mut self) -> impl Gridlike<T> {
+  fn transpose(&self) -> impl Gridlike<T> {
+    &self.grid
+  }
+}
+
+impl<'a, T> MutGridlike<T> for MutTransposeGrid<'a, T> {
+  fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
+    self.grid.get_mut(pos.transpose())
+  }
+
+  fn transpose_mut(&mut self) -> impl MutGridlike<T> {
     &mut self.grid
+  }
+}
+
+impl<G, T> Gridlike<T> for &G
+where
+  G: Gridlike<T>,
+{
+  fn width(&self) -> u32 {
+    (**self).width()
+  }
+  fn height(&self) -> u32 {
+    (**self).height()
+  }
+  fn in_bounds(&self, pos: Pos) -> bool {
+    (**self).in_bounds(pos)
+  }
+  fn get(&self, pos: Pos) -> Option<&T> {
+    (**self).get(pos)
+  }
+  fn iter_row<'a, 'b>(&'a self, y: u32) -> impl Iterator<Item = &'b T>
+  where
+    'a: 'b,
+    T: 'a,
+  {
+    (**self).iter_row(y)
+  }
+  fn iter_col<'a, 'b>(&'a self, x: u32) -> impl Iterator<Item = &'b T>
+  where
+    'a: 'b,
+    T: 'a,
+  {
+    (**self).iter_col(x)
+  }
+  fn transpose(&self) -> impl Gridlike<T> {
+    (**self).transpose()
   }
 }
 
@@ -177,23 +270,15 @@ where
   fn width(&self) -> u32 {
     (**self).width()
   }
-
   fn height(&self) -> u32 {
     (**self).height()
   }
-
   fn in_bounds(&self, pos: Pos) -> bool {
     (**self).in_bounds(pos)
   }
-
   fn get(&self, pos: Pos) -> Option<&T> {
     (**self).get(pos)
   }
-
-  fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
-    (**self).get_mut(pos)
-  }
-
   fn iter_row<'a, 'b>(&'a self, y: u32) -> impl Iterator<Item = &'b T>
   where
     'a: 'b,
@@ -201,7 +286,6 @@ where
   {
     (**self).iter_row(y)
   }
-
   fn iter_col<'a, 'b>(&'a self, x: u32) -> impl Iterator<Item = &'b T>
   where
     'a: 'b,
@@ -209,8 +293,19 @@ where
   {
     (**self).iter_col(x)
   }
-
-  fn transpose(&mut self) -> impl Gridlike<T> {
+  fn transpose(&self) -> impl Gridlike<T> {
     (**self).transpose()
+  }
+}
+
+impl<G, T> MutGridlike<T> for &mut G
+where
+  G: MutGridlike<T>,
+{
+  fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
+    (**self).get_mut(pos)
+  }
+  fn transpose_mut(&mut self) -> impl MutGridlike<T> {
+    (**self).transpose_mut()
   }
 }
