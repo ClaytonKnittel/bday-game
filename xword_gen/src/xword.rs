@@ -264,33 +264,6 @@ mod tests {
   }
 
   #[gtest]
-  fn test_small_dict() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
-      ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
-    );
-
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
-    expect_that!(
-      solution.get(Pos { x: 0, y: 0 }).cloned().flatten(),
-      some(any!('a', 'c'))
-    );
-    expect_that!(
-      solution.get(Pos { x: 1, y: 0 }).cloned().flatten(),
-      some(eq('b'))
-    );
-    expect_that!(
-      solution.get(Pos { x: 1, y: 1 }).cloned().flatten(),
-      some(any!('a', 'c'))
-    );
-  }
-
-  #[gtest]
   fn test_iterate_rows() {
     let xword = XWord::from_layout(
       "__
@@ -353,6 +326,34 @@ mod tests {
         .map(|clue| clue.pos)
         .collect::<Vec<_>>(),
       container_eq([Pos::zero(), Pos { x: 1, y: 0 }])
+    );
+  }
+
+  #[gtest]
+  fn test_small_dict() {
+    let xword = XWord::from_layout(
+      "__
+       X_",
+      ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
+    );
+
+    assert_that!(xword, ok(anything()));
+    let xword = xword.unwrap();
+    let solution = xword.solve();
+    assert_that!(solution, ok(anything()));
+    let solution = solution.unwrap();
+    expect_that!(
+      solution.get(Pos { x: 0, y: 0 }).cloned().flatten(),
+      some(any!('a', 'c'))
+    );
+    expect_that!(
+      solution.get(Pos { x: 1, y: 0 }).cloned().flatten(),
+      some(eq('b'))
+    );
+    expect_that!(solution.get(Pos { x: 0, y: 1 }).cloned().flatten(), none());
+    expect_that!(
+      solution.get(Pos { x: 1, y: 1 }).cloned().flatten(),
+      some(any!('a', 'c'))
     );
   }
 }
