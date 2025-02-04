@@ -1,26 +1,38 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use util::{
   error::{TermgameError, TermgameResult},
-  grid::{Grid, Gridlike},
-  pos::Pos,
+  grid::{Grid, Gridlike, MutGridlike},
+  pos::{Diff, Pos},
 };
 
 use crate::dlx::{ColorItem, Constraint, Dlx, HeaderType};
 
-/// Each clue has one RowClue or ColClue constraint, one Clue constraint, and
-/// one Tile constraint per letter in the answer.
-enum XWordConstraint {
-  /// RowClue is the row clue number this clue would get.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum XWordCluePosition {
   RowClue { number: u32 },
-  /// ColClue is the column clue number this clue would get.
   ColClue { number: u32 },
+}
+
+/// Each clue has one CluePos constraint, one Clue constraint, and one Tile
+/// constraint per letter in the answer.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum XWordConstraint {
+  /// CluePos is the clue position this clue would get.
+  CluePos(XWordCluePosition),
   /// Tiles indicate letters filled in on the board by a clue. These are
   /// secondary (color) constriants.
   Tile { pos: Pos, c: char },
   /// Clue number: each clue has a unique number. This prevents the same clue
   /// from being used twice.
   Clue { number: u32 },
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct XWordClueAssignment {
+  number: u32,
+  pos: Pos,
+  clue_pos: XWordCluePosition,
 }
 
 struct XWordEntry {
@@ -32,7 +44,7 @@ struct XWordEntry {
 #[derive(Clone, Debug)]
 pub struct XWord {
   board: Grid<bool>,
-  bank: HashSet<String>,
+  bank: HashMap<u32, String>,
 }
 
 impl XWord {
@@ -69,6 +81,12 @@ impl XWord {
 
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
     let board = Grid::from_vec(board, width, height as u32)?;
+
+    let bank = bank
+      .into_iter()
+      .enumerate()
+      .map(|(number, word)| (number as u32, word))
+      .collect();
 
     Ok(Self { board, bank })
   }
@@ -157,24 +175,58 @@ impl XWord {
     })
   }
 
-  pub fn solve(&self) -> Grid<Option<char>> {
-    let mut dlx = Dlx::new(
-      vec![
-        ('p', HeaderType::Primary),
-        ('q', HeaderType::Primary),
-        ('a', HeaderType::Secondary),
-      ],
-      vec![
-        (
-          0,
-          vec![Constraint::Primary('p'), ColorItem::new('a', 1).into()],
-        ),
-        (1, vec!['p'.into(), ColorItem::new('a', 2).into()]),
-        (2, vec!['q'.into(), ColorItem::new('a', 3).into()]),
-        (3, vec!['q'.into(), ColorItem::new('a', 1).into()]),
-      ],
-    );
+  fn build_constraints(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
     todo!();
+  }
+
+  pub fn solve(&self) -> TermgameResult<Grid<Option<char>>> {
+    let mut dlx = self.build_constraints();
+    let mut answer_grid = Grid::new(self.board.width(), self.board.height());
+    for XWordClueAssignment {
+      number,
+      pos,
+      clue_pos,
+    } in dlx
+      .find_solution_names()
+      .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?
+    {
+      let word = self
+        .bank
+        .get(&number)
+        .ok_or_else(|| TermgameError::Internal(format!("Unknown word number {number}")))?;
+      for (idx, c) in word.chars().enumerate() {
+        let tile_pos = pos
+          + match clue_pos {
+            XWordCluePosition::ColClue { number: _ } => Diff {
+              x: 0,
+              y: idx as i32,
+            },
+            XWordCluePosition::RowClue { number: _ } => Diff {
+              x: idx as i32,
+              y: 0,
+            },
+          };
+
+        let tile = answer_grid.get_mut(tile_pos).ok_or_else(|| {
+          TermgameError::Internal(format!("Position {tile_pos} is out of bounds"))
+        })?;
+        match tile {
+          Some(existing_c) => {
+            if c != *existing_c {
+              return Err(
+                TermgameError::Internal(format!(
+                  "Conflicting letter assignment at position {tile_pos}: {c} vs {existing_c}"
+                ))
+                .into(),
+              );
+            }
+          }
+          None => *tile = Some(c),
+        }
+      }
+    }
+
+    Ok(answer_grid)
   }
 }
 
@@ -222,6 +274,8 @@ mod tests {
     assert_that!(xword, ok(anything()));
     let xword = xword.unwrap();
     let solution = xword.solve();
+    assert_that!(solution, ok(anything()));
+    let solution = solution.unwrap();
     expect_that!(
       solution.get(Pos { x: 0, y: 0 }).cloned().flatten(),
       some(any!('a', 'c'))

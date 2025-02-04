@@ -1,6 +1,9 @@
-use std::ops::{Add, Sub};
+use std::{
+  fmt::Display,
+  ops::{Add, Sub},
+};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct Pos {
   pub x: i32,
   pub y: i32,
@@ -41,6 +44,12 @@ impl Add<Diff> for Pos {
   }
 }
 
+impl Display for Pos {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "({}, {})", self.x, self.y)
+  }
+}
+
 #[derive(Clone, Copy)]
 pub struct Diff {
   pub x: i32,
@@ -55,5 +64,11 @@ impl Add for Diff {
       x: self.x + rhs.x,
       y: self.y + rhs.y,
     }
+  }
+}
+
+impl Display for Diff {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "({}, {})", self.x, self.y)
   }
 }
