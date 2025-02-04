@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+  array::IntoIter,
+  collections::{HashMap, HashSet},
+};
 
 use util::{
   error::{TermgameError, TermgameResult},
@@ -21,8 +24,8 @@ enum XWordConstraint {
   /// CluePos is the clue position this clue would get.
   CluePos(XWordCluePosition),
   /// Tiles indicate letters filled in on the board by a clue. These are
-  /// secondary (color) constriants.
-  Tile { pos: Pos, c: char },
+  /// secondary (color) constriants, whose color is the character at this tile.
+  Tile { pos: Pos },
   /// Clue number: each clue has a unique number. This prevents the same clue
   /// from being used twice.
   Clue { number: u32 },
@@ -175,12 +178,72 @@ impl XWord {
     })
   }
 
-  fn build_constraints(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
-    todo!();
+  // Dlx<XWordConstraint, XWordClueAssignment>
+  fn build_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
+    self
+      .iterate_col_clues()
+      .map(
+        |XWordEntry {
+           number,
+           pos: _,
+           length: _,
+         }| {
+          (
+            XWordConstraint::CluePos(XWordCluePosition::ColClue { number }),
+            HeaderType::Primary,
+          )
+        },
+      )
+      .chain(self.iterate_row_clues().map(
+        |XWordEntry {
+           number,
+           pos: _,
+           length: _,
+         }| {
+          (
+            XWordConstraint::CluePos(XWordCluePosition::RowClue { number }),
+            HeaderType::Primary,
+          )
+        },
+      ))
+      .chain((0..self.board.height() as i32).flat_map(move |y| {
+        (0..self.board.width() as i32).flat_map(move |x| {
+          let pos = Pos { x, y };
+          self.board.get(pos).and_then(|available| {
+            available.then_some((XWordConstraint::Tile { pos }, HeaderType::Secondary))
+          })
+        })
+      }))
+      .chain(
+        self
+          .bank
+          .iter()
+          .map(|(&number, _)| (XWordConstraint::Clue { number }, HeaderType::Primary)),
+      )
+  }
+
+  fn build_word_assignments(
+    &self,
+  ) -> impl Iterator<
+    Item = (
+      XWordClueAssignment,
+      impl IntoIterator<Item = XWordConstraint>,
+    ),
+  > {
+    std::iter::once((
+      XWordClueAssignment {
+        number: 0,
+        pos: Pos::zero(),
+        clue_pos: XWordCluePosition::RowClue { number: 0 },
+      },
+      std::iter::empty(),
+    ))
   }
 
   pub fn solve(&self) -> TermgameResult<Grid<Option<char>>> {
-    let mut dlx = self.build_constraints();
+    let constraints = self.build_constraints();
+    let word_assignments = self.build_word_assignments();
+    let mut dlx = Dlx::new(constraints, word_assignments);
     let mut answer_grid = Grid::new(self.board.width(), self.board.height());
     for XWordClueAssignment {
       number,
@@ -238,6 +301,11 @@ mod tests {
 
   use googletest::prelude::*;
   use util::{grid::Gridlike, pos::Pos};
+
+  use crate::{
+    dlx::HeaderType,
+    xword::{XWordCluePosition, XWordConstraint},
+  };
 
   use super::XWord;
 
@@ -326,6 +394,60 @@ mod tests {
         .map(|clue| clue.pos)
         .collect::<Vec<_>>(),
       container_eq([Pos::zero(), Pos { x: 1, y: 0 }])
+    );
+  }
+
+  #[gtest]
+  fn test_constraints() {
+    let xword = XWord::from_layout(
+      "__
+       X_",
+      ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
+    );
+
+    assert_that!(xword, ok(anything()));
+    let xword = xword.unwrap();
+    let constraints: Vec<_> = xword.build_constraints().collect();
+    expect_that!(
+      constraints,
+      unordered_elements_are![
+        &(
+          XWordConstraint::CluePos(XWordCluePosition::RowClue { number: 0 }),
+          HeaderType::Primary
+        ),
+        &(
+          XWordConstraint::CluePos(XWordCluePosition::RowClue { number: 1 }),
+          HeaderType::Primary
+        ),
+        &(
+          XWordConstraint::CluePos(XWordCluePosition::ColClue { number: 0 }),
+          HeaderType::Primary
+        ),
+        &(
+          XWordConstraint::CluePos(XWordCluePosition::ColClue { number: 1 }),
+          HeaderType::Primary
+        ),
+        &(
+          XWordConstraint::Tile {
+            pos: Pos { x: 0, y: 0 }
+          },
+          HeaderType::Secondary
+        ),
+        &(
+          XWordConstraint::Tile {
+            pos: Pos { x: 1, y: 0 }
+          },
+          HeaderType::Secondary
+        ),
+        &(
+          XWordConstraint::Tile {
+            pos: Pos { x: 1, y: 1 }
+          },
+          HeaderType::Secondary
+        ),
+        &(XWordConstraint::Clue { number: 0 }, HeaderType::Primary),
+        &(XWordConstraint::Clue { number: 1 }, HeaderType::Primary),
+      ]
     );
   }
 
