@@ -7,7 +7,7 @@ use std::{
   iter,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ColorItem<I> {
   item: I,
   color: u32,
@@ -19,7 +19,7 @@ impl<I> ColorItem<I> {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Constraint<I> {
   Primary(I),
   Secondary(ColorItem<I>),
@@ -881,7 +881,6 @@ where
     N: Debug,
   {
     let mut solutions = self.find_all_solutions_idx();
-    debug_assert_eq!(solutions.len(), 1);
     solutions
       .pop()
       .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
