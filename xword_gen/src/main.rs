@@ -26,9 +26,9 @@ fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
     let answer = items[2];
     // let clue = items[3];
 
-    if answer.is_empty()
-      || !answer.chars().all(|c| c.is_alphabetic())
-      || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
+    if answer.len() <= 2
+    // || !answer.chars().all(|c| c.is_alphabetic())
+    // || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
     {
       continue;
     }
@@ -51,21 +51,27 @@ fn main() -> TermgameResult {
 
   let words: Vec<_> = dict
     .iter()
-    .filter(|(str, _)| str.len() <= 5)
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(1268)
+    .take(10000)
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
   }
 
   let xword = XWord::from_layout(
-    "X___X
-     _____
-     _____
-     _____
-     _____",
+    "___XXX___X___XXX___
+     ___XXX_______XXX___
+     _____X_______X_____
+     X_____X_____X_____X
+     XX______XXX______XX
+     XXX____XXXXX____XXX
+     XXX____XXXXX____XXX
+     XX______XXX______XX
+     X_____X_____X_____X
+     _____X_______X_____
+     ___XXX_______XXX___
+     ___XXX___X___XXX___",
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 
