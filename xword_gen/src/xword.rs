@@ -257,7 +257,7 @@ impl XWord {
         self
           .bank
           .iter()
-          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Primary)),
+          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Secondary)),
       )
   }
 
@@ -323,20 +323,31 @@ impl XWord {
     &self,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let entry_map = self.build_entry_map();
+
     self.bank.iter().flat_map(move |(&id, word)| {
       let word_len = word.chars().count() as u32;
+      // We need to assign each usage of a clue a unique number, so all
+      // secondary constraints on the usage of that word conflict. This ensures
+      // we don't reuse words in a puzzle.
+      let mut clue_instance_id = 0;
+
       entry_map
         .get(&word_len)
         .iter()
         .flat_map(|assignments| {
-          assignments.iter().map(|clue_pos| {
+          assignments.iter().map(move |clue_pos| {
             let mut constraints = vec![
               Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone())),
-              Constraint::Primary(XWordConstraint::Clue { id }),
+              Constraint::Secondary(ColorItem::new(
+                XWordConstraint::Clue { id },
+                clue_instance_id,
+              )),
             ];
             constraints.extend(self.word_letter_positions(word, clue_pos).map(|(c, pos)| {
               Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
             }));
+
+            clue_instance_id += 1;
 
             (
               XWordClueAssignment {
@@ -555,8 +566,8 @@ mod tests {
           },
           HeaderType::Secondary
         ),
-        &(XWordConstraint::Clue { id: 0 }, HeaderType::Primary),
-        &(XWordConstraint::Clue { id: 1 }, HeaderType::Primary),
+        &(XWordConstraint::Clue { id: 0 }, HeaderType::Secondary),
+        &(XWordConstraint::Clue { id: 1 }, HeaderType::Secondary),
       ]
     );
   }
@@ -651,7 +662,7 @@ mod tests {
               number: 0,
               is_row: true
             })),
-            Constraint::Primary(XWordConstraint::Clue { id: ab_id }),
+            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: ab_id }, 0)),
             Constraint::Secondary(ColorItem::new(
               XWordConstraint::Tile { pos: Pos::zero() },
               'a' as u32
@@ -680,7 +691,7 @@ mod tests {
               number: 1,
               is_row: false
             })),
-            Constraint::Primary(XWordConstraint::Clue { id: ab_id }),
+            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: ab_id }, 1)),
             Constraint::Secondary(ColorItem::new(
               XWordConstraint::Tile {
                 pos: Pos { x: 1, y: 0 }
@@ -692,29 +703,6 @@ mod tests {
                 pos: Pos { x: 1, y: 1 }
               },
               'b' as u32
-            )),
-          ]
-        ),
-        &(
-          XWordClueAssignment {
-            id: c_id,
-            clue_pos: XWordCluePosition {
-              pos: Pos::zero(),
-              clue_number: XWordClueNumber {
-                number: 0,
-                is_row: false
-              }
-            }
-          },
-          vec![
-            Constraint::Primary(XWordConstraint::ClueNumber(XWordClueNumber {
-              number: 0,
-              is_row: false
-            })),
-            Constraint::Primary(XWordConstraint::Clue { id: c_id }),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile { pos: Pos::zero() },
-              'c' as u32
             )),
           ]
         ),
@@ -734,11 +722,34 @@ mod tests {
               number: 1,
               is_row: true
             })),
-            Constraint::Primary(XWordConstraint::Clue { id: c_id }),
+            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: c_id }, 0)),
             Constraint::Secondary(ColorItem::new(
               XWordConstraint::Tile {
                 pos: Pos { x: 1, y: 1 }
               },
+              'c' as u32
+            )),
+          ]
+        ),
+        &(
+          XWordClueAssignment {
+            id: c_id,
+            clue_pos: XWordCluePosition {
+              pos: Pos::zero(),
+              clue_number: XWordClueNumber {
+                number: 0,
+                is_row: false
+              }
+            }
+          },
+          vec![
+            Constraint::Primary(XWordConstraint::ClueNumber(XWordClueNumber {
+              number: 0,
+              is_row: false
+            })),
+            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: c_id }, 1)),
+            Constraint::Secondary(ColorItem::new(
+              XWordConstraint::Tile { pos: Pos::zero() },
               'c' as u32
             )),
           ]

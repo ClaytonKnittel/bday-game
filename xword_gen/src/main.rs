@@ -46,7 +46,24 @@ fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
 fn main() -> TermgameResult {
   let dict = read_dict("clues.txt")?;
 
-  for (word, freq) in dict.iter().sorted_by_key(|(_, &freq)| !freq).take(20) {
+  let total: u64 = dict.iter().map(|(_, &freq)| freq as u64).sum();
+  println!("Total: {total}, size {}", dict.len());
+
+  let words: Vec<_> = dict
+    .iter()
+    .filter(|(str, _)| str.len() <= 5)
+    .map(|(str, &freq)| (str.to_owned(), freq))
+    .chain(
+      [
+        "hug", "korea", "isbns", "snark", "sines", "kiss", "hosni", "urban", "genre", "asks",
+      ]
+      .into_iter()
+      .map(|word| (word.to_owned(), 1)),
+    )
+    // .sorted_by_key(|(_, &freq)| !freq)
+    // .take(2000)
+    .collect();
+  for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
   }
 
@@ -56,12 +73,7 @@ fn main() -> TermgameResult {
      _____
      _____
      _____",
-    [
-      "hug", "korea", "isbns", "snark", "sines", "kiss", "hosni", "urban", "genre", "asks",
-    ]
-    .into_iter()
-    .map(|str| str.to_owned())
-    .collect(),
+    words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 
   let solution = xword.solve()?.map(|&tile| tile.unwrap_or('_'));
