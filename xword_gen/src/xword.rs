@@ -368,7 +368,7 @@ impl XWord {
     let mut dlx = Dlx::new(constraints, word_assignments);
     let mut answer_grid = Grid::new(self.board.width(), self.board.height());
     for XWordClueAssignment { id, clue_pos } in dlx
-      .find_solution_names()
+      .find_any_solution_names()
       .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?
     {
       let word = self

@@ -486,6 +486,23 @@ where
     unsafe { self.body.get_unchecked_mut(idx) }
   }
 
+  fn to_top(&self, mut p: usize) -> usize {
+    p = self.body_node(p).next();
+    while let Node::Normal {
+      node_type,
+      item_node,
+    } = self.node(p)
+    {
+      match node_type {
+        NodeType::Header { .. } => return p,
+        NodeType::Body { .. } => {
+          p = item_node.next;
+        }
+      }
+    }
+    unreachable!("Unexpected boundary node found in queue: {p}");
+  }
+
   fn item_name(&self, idx: usize) -> I {
     debug_assert!(matches!(
       self.body_node(idx),
@@ -808,7 +825,7 @@ where
       })
   }
 
-  fn find_all_solutions_idx(&mut self) -> Vec<Vec<usize>>
+  fn find_all_solutions_idx(&mut self, max_solutions: Option<usize>) -> Vec<Vec<usize>>
   where
     I: Debug,
     N: Debug,
@@ -824,16 +841,21 @@ where
           self.cover(item);
         }
         None => {
-          // Undo all changes we've made to the data structure.
-          // solution.iter().rev().for_each(|&p| {
-          //   self.uncover_remaining_choices(p);
-          //   let top = self.body_node(p).top() as usize;
-          //   self.uncover(top);
-          // });
           solutions.push(solution.clone());
+
+          if let Some(max_solutions) = max_solutions {
+            // Undo all changes we've made to the data structure before
+            // returning, leaving it unmodified.
+            if solutions.len() >= max_solutions {
+              solution.iter().rev().for_each(|&p| {
+                self.uncover_remaining_choices(p);
+                self.uncover(self.to_top(p));
+              });
+              break;
+            }
+          }
         }
       }
-      // println!("d{} for {}", solution.len(), solution.last().unwrap());
 
       while let Some(p) = solution.pop() {
         if let Node::Normal {
@@ -875,12 +897,24 @@ where
     solutions
   }
 
+  pub fn find_any_solution_names(&mut self) -> Option<impl Iterator<Item = N> + '_>
+  where
+    I: Debug,
+    N: Debug,
+  {
+    let mut solutions = self.find_all_solutions_idx(Some(1));
+    solutions
+      .pop()
+      .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
+  }
+
   pub fn find_solution_names(&mut self) -> Option<impl Iterator<Item = N> + '_>
   where
     I: Debug,
     N: Debug,
   {
-    let mut solutions = self.find_all_solutions_idx();
+    let mut solutions = self.find_all_solutions_idx(Some(2));
+    debug_assert_eq!(solutions.len(), 1);
     solutions
       .pop()
       .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
@@ -891,22 +925,25 @@ where
     I: Debug,
     N: Debug,
   {
-    self.find_all_solutions_idx().into_iter().map(|solution| {
-      solution
-        .iter()
-        .fold(HashMap::new(), |secondary_assignments, &p| {
-          self
-            .items_for_node(p)
-            .fold(secondary_assignments, |mut secondary_assignments, c| {
-              if let Constraint::Secondary(ColorItem { item, color }) = c {
-                if let Some(prev_color) = secondary_assignments.insert(item, color) {
-                  debug_assert_eq!(color, prev_color);
+    self
+      .find_all_solutions_idx(None)
+      .into_iter()
+      .map(|solution| {
+        solution
+          .iter()
+          .fold(HashMap::new(), |secondary_assignments, &p| {
+            self
+              .items_for_node(p)
+              .fold(secondary_assignments, |mut secondary_assignments, c| {
+                if let Constraint::Secondary(ColorItem { item, color }) = c {
+                  if let Some(prev_color) = secondary_assignments.insert(item, color) {
+                    debug_assert_eq!(color, prev_color);
+                  }
                 }
-              }
-              secondary_assignments
-            })
-        })
-    })
+                secondary_assignments
+              })
+          })
+      })
   }
 
   pub fn find_solution_colors(&mut self) -> Option<HashMap<I, u32>>
@@ -914,7 +951,7 @@ where
     I: Debug,
     N: Debug,
   {
-    let mut solutions = self.find_all_solutions_idx();
+    let mut solutions = self.find_all_solutions_idx(Some(2));
     debug_assert_eq!(solutions.len(), 1);
     solutions.pop().map(|solution| {
       solution

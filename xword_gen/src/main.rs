@@ -53,15 +53,8 @@ fn main() -> TermgameResult {
     .iter()
     .filter(|(str, _)| str.len() <= 5)
     .map(|(str, &freq)| (str.to_owned(), freq))
-    .chain(
-      [
-        "hug", "korea", "isbns", "snark", "sines", "kiss", "hosni", "urban", "genre", "asks",
-      ]
-      .into_iter()
-      .map(|word| (word.to_owned(), 1)),
-    )
-    // .sorted_by_key(|(_, &freq)| !freq)
-    // .take(2000)
+    .sorted_by_key(|&(_, freq)| !freq)
+    .take(1268)
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
