@@ -328,8 +328,9 @@ impl XWord {
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let entry_map = self.build_entry_map();
     self.bank.iter().flat_map(move |(&id, word)| {
+      let word_len = word.chars().count() as u32;
       entry_map
-        .get(&id)
+        .get(&word_len)
         .iter()
         .flat_map(|assignments| {
           assignments.iter().map(|clue_pos| {
