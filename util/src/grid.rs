@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
@@ -59,6 +61,17 @@ impl<T> Grid<T> {
     let x = pos.x as usize;
     let y = pos.y as usize;
     x + y * self.width as usize
+  }
+
+  pub fn map<F, U>(&self, f: F) -> Grid<U>
+  where
+    F: FnMut(&T) -> U,
+  {
+    Grid {
+      grid: self.grid.iter().map(f).collect(),
+      width: self.width,
+      height: self.height,
+    }
   }
 }
 
@@ -131,6 +144,15 @@ impl<T> MutGridlike<T> for Grid<T> {
 
   fn transpose_mut(&mut self) -> impl MutGridlike<T> {
     MutTransposeGrid { grid: self }
+  }
+}
+
+impl<T: Display> Display for Grid<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    (0..self.height).try_fold((), |_, y| {
+      self.iter_row(y).try_fold((), |_, t| write!(f, "{t} "))?;
+      writeln!(f)
+    })
   }
 }
 

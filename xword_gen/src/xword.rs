@@ -1,8 +1,4 @@
-use std::{
-  array::IntoIter,
-  collections::{hash_map::Entry, HashMap, HashSet},
-  iter::once,
-};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use util::{
   error::{TermgameError, TermgameResult},
@@ -122,7 +118,7 @@ impl XWord {
       iter: Option<I>,
     }
 
-    impl<'a, I> Iterator for EmptySequences<'a, I>
+    impl<I> Iterator for EmptySequences<'_, I>
     where
       I: Iterator<Item = bool>,
     {
