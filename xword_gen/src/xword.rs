@@ -13,29 +13,34 @@ use util::{
 use crate::dlx::{ColorItem, Constraint, Dlx, HeaderType};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum XWordCluePosition {
-  RowClue { number: u32 },
-  ColClue { number: u32 },
+struct XWordClueNumber {
+  number: u32,
+  is_row: bool,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct XWordCluePosition {
+  pos: Pos,
+  clue_number: XWordClueNumber,
 }
 
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
 /// constraint per letter in the answer.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 enum XWordConstraint {
-  /// CluePos is the clue position this clue would get.
-  CluePos(XWordCluePosition),
+  /// ClueNumber is the clue position identifier this clue would get.
+  ClueNumber(XWordClueNumber),
   /// Tiles indicate letters filled in on the board by a clue. These are
   /// secondary (color) constriants, whose color is the character at this tile.
   Tile { pos: Pos },
-  /// Clue number: each clue has a unique number. This prevents the same clue
-  /// from being used twice.
-  Clue { number: u32 },
+  /// Clue id: each clue has a unique id. This prevents the same clue from
+  /// being used twice.
+  Clue { id: u32 },
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct XWordClueAssignment {
-  number: u32,
-  pos: Pos,
+  id: u32,
   clue_pos: XWordCluePosition,
 }
 
@@ -89,7 +94,7 @@ impl XWord {
     let bank = bank
       .into_iter()
       .enumerate()
-      .map(|(number, word)| (number as u32, word))
+      .map(|(id, word)| (id as u32, word))
       .collect();
 
     Ok(Self { board, bank })
@@ -182,22 +187,22 @@ impl XWord {
   fn word_letter_positions<'a>(
     &self,
     word: &'a str,
-    first_char_pos: Pos,
-    clue_pos: XWordCluePosition,
+    clue_pos: &'a XWordCluePosition,
   ) -> impl Iterator<Item = (char, Pos)> + 'a {
     word.chars().enumerate().map(move |(idx, c)| {
       (
         c,
-        first_char_pos
-          + match clue_pos {
-            XWordCluePosition::ColClue { number: _ } => Diff {
-              x: 0,
-              y: idx as i32,
-            },
-            XWordCluePosition::RowClue { number: _ } => Diff {
+        clue_pos.pos
+          + if clue_pos.clue_number.is_row {
+            Diff {
               x: idx as i32,
               y: 0,
-            },
+            }
+          } else {
+            Diff {
+              x: 0,
+              y: idx as i32,
+            }
           },
       )
     })
@@ -213,7 +218,10 @@ impl XWord {
            length: _,
          }| {
           (
-            XWordConstraint::CluePos(XWordCluePosition::ColClue { number }),
+            XWordConstraint::ClueNumber(XWordClueNumber {
+              number,
+              is_row: false,
+            }),
             HeaderType::Primary,
           )
         },
@@ -225,7 +233,10 @@ impl XWord {
            length: _,
          }| {
           (
-            XWordConstraint::CluePos(XWordCluePosition::RowClue { number }),
+            XWordConstraint::ClueNumber(XWordClueNumber {
+              number,
+              is_row: true,
+            }),
             HeaderType::Primary,
           )
         },
@@ -242,44 +253,27 @@ impl XWord {
         self
           .bank
           .iter()
-          .map(|(&number, _)| (XWordConstraint::Clue { number }, HeaderType::Primary)),
+          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Primary)),
       )
   }
 
-  fn build_entry_map(&self) -> HashMap<u32, Vec<XWordClueAssignment>> {
-    let entry_map: HashMap<_, Vec<_>> =
-      self
-        .iterate_row_clues()
-        .fold(HashMap::new(), |mut entry_map, xword_entry| {
-          let clue_assignment = XWordClueAssignment {
-            number: xword_entry.number,
-            pos: xword_entry.pos,
-            clue_pos: XWordCluePosition::RowClue {
-              number: xword_entry.number,
-            },
-          };
-          match entry_map.entry(xword_entry.length) {
-            Entry::Occupied(mut entry) => {
-              entry.get_mut().push(clue_assignment);
-            }
-            Entry::Vacant(entry) => {
-              entry.insert(vec![clue_assignment]);
-            }
-          }
-          entry_map
-        });
-
-    let entry_map = self
-      .iterate_row_clues()
-      .fold(entry_map, |mut entry_map, xword_entry| {
-        let clue_assignment = XWordClueAssignment {
-          number: xword_entry.number,
-          pos: xword_entry.pos,
-          clue_pos: XWordCluePosition::ColClue {
-            number: xword_entry.number,
+  fn build_entry_map(&self) -> HashMap<u32, Vec<XWordCluePosition>> {
+    let entry_map: HashMap<_, Vec<_>> = self.iterate_row_clues().fold(
+      HashMap::new(),
+      |mut entry_map,
+       XWordEntry {
+         number,
+         pos,
+         length,
+       }| {
+        let clue_assignment = XWordCluePosition {
+          pos,
+          clue_number: XWordClueNumber {
+            number,
+            is_row: true,
           },
         };
-        match entry_map.entry(xword_entry.length) {
+        match entry_map.entry(length) {
           Entry::Occupied(mut entry) => {
             entry.get_mut().push(clue_assignment);
           }
@@ -288,7 +282,35 @@ impl XWord {
           }
         }
         entry_map
-      });
+      },
+    );
+
+    let entry_map = self.iterate_col_clues().fold(
+      entry_map,
+      |mut entry_map,
+       XWordEntry {
+         number,
+         pos,
+         length,
+       }| {
+        let clue_assignment = XWordCluePosition {
+          pos,
+          clue_number: XWordClueNumber {
+            number,
+            is_row: false,
+          },
+        };
+        match entry_map.entry(length) {
+          Entry::Occupied(mut entry) => {
+            entry.get_mut().push(clue_assignment);
+          }
+          Entry::Vacant(entry) => {
+            entry.insert(vec![clue_assignment]);
+          }
+        }
+        entry_map
+      },
+    );
 
     entry_map
   }
@@ -297,27 +319,27 @@ impl XWord {
     &self,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let entry_map = self.build_entry_map();
-    self.bank.iter().flat_map(move |(word_number, word)| {
+    self.bank.iter().flat_map(move |(&id, word)| {
       entry_map
-        .get(word_number)
+        .get(&id)
         .iter()
         .flat_map(|assignments| {
-          assignments.iter().map(|assignment| {
+          assignments.iter().map(|clue_pos| {
             let mut constraints = vec![
-              Constraint::Primary(XWordConstraint::CluePos(assignment.clue_pos.clone())),
-              Constraint::Primary(XWordConstraint::Clue {
-                number: assignment.number,
-              }),
+              Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone())),
+              Constraint::Primary(XWordConstraint::Clue { id }),
             ];
-            constraints.extend(
-              self
-                .word_letter_positions(word, assignment.pos, assignment.clue_pos.clone())
-                .map(|(c, pos)| {
-                  Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
-                }),
-            );
+            constraints.extend(self.word_letter_positions(word, clue_pos).map(|(c, pos)| {
+              Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
+            }));
 
-            (assignment.clone(), constraints)
+            (
+              XWordClueAssignment {
+                id,
+                clue_pos: clue_pos.clone(),
+              },
+              constraints,
+            )
           })
         })
         .collect::<Vec<_>>()
@@ -329,19 +351,15 @@ impl XWord {
     let word_assignments = self.build_word_assignments();
     let mut dlx = Dlx::new(constraints, word_assignments);
     let mut answer_grid = Grid::new(self.board.width(), self.board.height());
-    for XWordClueAssignment {
-      number,
-      pos,
-      clue_pos,
-    } in dlx
+    for XWordClueAssignment { id, clue_pos } in dlx
       .find_solution_names()
       .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?
     {
       let word = self
         .bank
-        .get(&number)
-        .ok_or_else(|| TermgameError::Internal(format!("Unknown word number {number}")))?;
-      for (c, tile_pos) in self.word_letter_positions(word, pos, clue_pos) {
+        .get(&id)
+        .ok_or_else(|| TermgameError::Internal(format!("Unknown word id {id}")))?;
+      for (c, tile_pos) in self.word_letter_positions(word, &clue_pos) {
         let tile = answer_grid.get_mut(tile_pos).ok_or_else(|| {
           TermgameError::Internal(format!("Position {tile_pos} is out of bounds"))
         })?;
@@ -376,7 +394,7 @@ mod tests {
 
   use crate::{
     dlx::HeaderType,
-    xword::{XWordCluePosition, XWordConstraint},
+    xword::{XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint},
   };
 
   use super::XWord;
@@ -484,19 +502,31 @@ mod tests {
       constraints,
       unordered_elements_are![
         &(
-          XWordConstraint::CluePos(XWordCluePosition::RowClue { number: 0 }),
+          XWordConstraint::ClueNumber(XWordClueNumber {
+            number: 0,
+            is_row: true
+          }),
           HeaderType::Primary
         ),
         &(
-          XWordConstraint::CluePos(XWordCluePosition::RowClue { number: 1 }),
+          XWordConstraint::ClueNumber(XWordClueNumber {
+            number: 1,
+            is_row: true
+          }),
           HeaderType::Primary
         ),
         &(
-          XWordConstraint::CluePos(XWordCluePosition::ColClue { number: 0 }),
+          XWordConstraint::ClueNumber(XWordClueNumber {
+            number: 0,
+            is_row: false
+          }),
           HeaderType::Primary
         ),
         &(
-          XWordConstraint::CluePos(XWordCluePosition::ColClue { number: 1 }),
+          XWordConstraint::ClueNumber(XWordClueNumber {
+            number: 1,
+            is_row: false
+          }),
           HeaderType::Primary
         ),
         &(
@@ -517,8 +547,64 @@ mod tests {
           },
           HeaderType::Secondary
         ),
-        &(XWordConstraint::Clue { number: 0 }, HeaderType::Primary),
-        &(XWordConstraint::Clue { number: 1 }, HeaderType::Primary),
+        &(XWordConstraint::Clue { id: 0 }, HeaderType::Primary),
+        &(XWordConstraint::Clue { id: 1 }, HeaderType::Primary),
+      ]
+    );
+  }
+
+  #[gtest]
+  fn test_entry_map() {
+    let xword = XWord::from_layout(
+      "__
+       X_",
+      ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
+    );
+
+    assert_that!(xword, ok(anything()));
+    let xword = xword.unwrap();
+    let entry_map = xword.build_entry_map();
+    expect_that!(
+      entry_map,
+      unordered_elements_are![
+        (
+          /*length=*/ &1,
+          &vec![
+            XWordCluePosition {
+              pos: Pos { x: 1, y: 1 },
+              clue_number: XWordClueNumber {
+                number: 1,
+                is_row: true
+              }
+            },
+            XWordCluePosition {
+              pos: Pos::zero(),
+              clue_number: XWordClueNumber {
+                number: 0,
+                is_row: false
+              }
+            }
+          ]
+        ),
+        (
+          /*length=*/ &2,
+          &vec![
+            XWordCluePosition {
+              pos: Pos::zero(),
+              clue_number: XWordClueNumber {
+                number: 0,
+                is_row: true
+              }
+            },
+            XWordCluePosition {
+              pos: Pos { x: 1, y: 0 },
+              clue_number: XWordClueNumber {
+                number: 1,
+                is_row: false
+              }
+            }
+          ]
+        ),
       ]
     );
   }
