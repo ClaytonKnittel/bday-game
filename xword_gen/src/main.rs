@@ -43,6 +43,50 @@ fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
   Ok(result)
 }
 
+const fn saturday() -> &'static str {
+  "________XX_____
+   _________X_____
+   _________X_____
+   _____XX____X___
+   ____X_____X____
+   ___X____X______
+   X______________
+   XXX____X____XXX
+   ______________X
+   ______X____X___
+   ____X_____X____
+   ___X____XX_____
+   _____X_________
+   _____X_________
+   _____XX________"
+}
+
+const fn sunday() -> &'static str {
+  "________X_______X______
+   ________X_______X______
+   ________X_______X______
+   ___X______X____X___X___
+   ____XX_____X______X____
+   ______X_____XX____X____
+   XXX____X____X____X_____
+   ___X_____X______X______
+   ________X_____X_____XXX
+   _____X_______XXX_______
+   _____XX_____X______X___
+   ____X_____________X____
+   ___X______X_____XX_____
+   _______XXX_______X_____
+   XXX_____X_____X________
+   ______X______X_____X___
+   _____X____X____X____XXX
+   ____X____XX_____X______
+   ____X______X_____XX____
+   ___X___X____X______X___
+   ______X_______X________
+   ______X_______X________
+   ______X_______X________"
+}
+
 fn main() -> TermgameResult {
   let dict = read_dict("clues.txt")?;
 
@@ -53,25 +97,14 @@ fn main() -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(10000)
+    .take(120000)
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
   }
 
   let xword = XWord::from_layout(
-    "___XXX___X___XXX___
-     ___XXX_______XXX___
-     _____X_______X_____
-     X_____X_____X_____X
-     XX______XXX______XX
-     XXX____XXXXX____XXX
-     XXX____XXXXX____XXX
-     XX______XXX______XX
-     X_____X_____X_____X
-     _____X_______X_____
-     ___XXX_______XXX___
-     ___XXX___X___XXX___",
+    sunday(),
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 
