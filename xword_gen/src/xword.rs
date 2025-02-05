@@ -399,7 +399,10 @@ mod tests {
   use std::collections::HashSet;
 
   use googletest::prelude::*;
-  use util::{grid::Gridlike, pos::Pos};
+  use util::{
+    grid::{Grid, Gridlike},
+    pos::Pos,
+  };
 
   use crate::{
     dlx::{ColorItem, Constraint, HeaderType},
@@ -777,5 +780,40 @@ mod tests {
       solution.get(Pos { x: 1, y: 1 }).cloned().flatten(),
       some(any!('a', 'c'))
     );
+  }
+
+  #[gtest]
+  fn test_mini() {
+    let xword = XWord::from_layout(
+      "X___X
+       _____
+       _____
+       _____
+       _____",
+      [
+        "hug", "korea", "isbns", "snark", "sines", "kiss", "hosni", "urban", "genre", "asks",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned())
+      .collect(),
+    );
+
+    assert_that!(xword, ok(anything()));
+    let xword = xword.unwrap();
+    let solution = xword.solve();
+    assert_that!(solution, ok(anything()));
+    let solution = solution.unwrap();
+
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        None,      Some('h'), Some('u'), Some('g'), None,
+        Some('k'), Some('o'), Some('r'), Some('e'), Some('a'),
+        Some('i'), Some('s'), Some('b'), Some('n'), Some('s'),
+        Some('s'), Some('n'), Some('a'), Some('r'), Some('k'),
+        Some('s'), Some('i'), Some('n'), Some('e'), Some('s'),
+      ], 5, 5,
+    ).unwrap();
+    expect_eq!(solution, expected_solution);
   }
 }

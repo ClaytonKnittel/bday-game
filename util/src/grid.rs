@@ -27,7 +27,7 @@ pub trait MutGridlike<T>: Gridlike<T> {
   fn transpose_mut(&mut self) -> impl MutGridlike<T>;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Grid<T> {
   grid: Vec<T>,
   width: u32,
