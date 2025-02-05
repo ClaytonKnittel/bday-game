@@ -753,7 +753,7 @@ mod tests {
     let xword = XWord::from_layout(
       "__
        X_",
-      ["a", "b", "ab", "bc"]
+      ["a", "c", "ab", "bc"]
         .into_iter()
         .map(|str| str.to_owned())
         .collect(),
