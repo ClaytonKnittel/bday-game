@@ -13,12 +13,6 @@ pub struct Crossword {
 }
 
 impl Crossword {
-  pub fn new(w: u32, h: u32) -> Self {
-    Self {
-      grid: Grid::new(w, h),
-    }
-  }
-
   pub fn from_grid(grid: Grid<Option<char>>) -> Self {
     Self { grid }
   }
