@@ -8,6 +8,7 @@ pub struct Draw {
   fg_color: Option<color::AnsiValue>,
   z_idx: i32,
   italic: bool,
+  bold: bool,
 }
 
 impl Draw {
@@ -17,6 +18,7 @@ impl Draw {
       fg_color: None,
       z_idx: 0,
       italic: false,
+      bold: false,
     }
   }
 
@@ -45,6 +47,10 @@ impl Draw {
       ..self
     }
   }
+
+  pub fn with_bold(self) -> Self {
+    Self { bold: true, ..self }
+  }
 }
 
 impl Display for Draw {
@@ -59,7 +65,17 @@ impl Display for Draw {
     } else {
       "".to_owned()
     };
-    write!(f, "{}{}{}{}", style::Reset, italic_str, fg_str, self.item)
+    let bold_str = if self.bold {
+      style::Bold.to_string()
+    } else {
+      "".to_owned()
+    };
+    write!(
+      f,
+      "{}{italic_str}{bold_str}{fg_str}{}",
+      style::Reset,
+      self.item
+    )
   }
 }
 
@@ -68,6 +84,7 @@ impl PartialEq for Draw {
     self.item == other.item
       && self.z_idx == other.z_idx
       && self.italic == other.italic
+      && self.bold == other.bold
       && match (self.fg_color, other.fg_color) {
         (Some(color::AnsiValue(c1)), Some(color::AnsiValue(c2))) => c1 == c2,
         (None, None) => true,

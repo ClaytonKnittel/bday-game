@@ -18,6 +18,18 @@ fn main() -> TermgameResult {
   if let Some(slot) = grid.get_mut(Pos { x: 4, y: 3 }) {
     *slot = Some('a');
   }
+  if let Some(slot) = grid.get_mut(Pos { x: 5, y: 3 }) {
+    *slot = Some(' ');
+  }
+  if let Some(slot) = grid.get_mut(Pos { x: 6, y: 3 }) {
+    *slot = Some('b');
+  }
+  if let Some(slot) = grid.get_mut(Pos { x: 5, y: 4 }) {
+    *slot = Some(' ');
+  }
+  if let Some(slot) = grid.get_mut(Pos { x: 6, y: 4 }) {
+    *slot = Some(' ');
+  }
 
   ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
   let pc_uid = ev
