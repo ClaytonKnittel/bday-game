@@ -208,7 +208,18 @@ impl Entity for Crossword {
         })
         .chain((0..self.width() as i32).flat_map(move |x| {
           (0..XSCALE).map(move |dx| {
-            let tile = if dx == 0 { '+' } else { '-' };
+            let grid_pos = Pos {
+              x,
+              y: self.height() as i32,
+            };
+            let tile = if x == 0 && dx == 0 {
+              // ┗
+              '\u{2517}'
+            } else if dx == 0 {
+              self.cross_at(grid_pos)
+            } else {
+              self.h_bar_at(grid_pos)
+            };
             (
               Draw::new(tile).with_fg(col).with_z(Z_IDX),
               Pos {
@@ -219,7 +230,12 @@ impl Entity for Crossword {
           })
         }))
         .chain(iter::once((
-          Draw::new('+').with_fg(col).with_z(Z_IDX),
+          Draw::new(
+            // ┛
+            '\u{251B}',
+          )
+          .with_fg(col)
+          .with_z(Z_IDX),
           Pos {
             x: self.width() as i32 * XSCALE,
             y: self.height() as i32 * YSCALE,
