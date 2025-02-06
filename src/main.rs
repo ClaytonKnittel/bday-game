@@ -14,7 +14,7 @@ use util::{
 
 fn main() -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  let mut grid = Grid::new(50, 20);
+  let mut grid = Grid::new(30, 20);
   if let Some(slot) = grid.get_mut(Pos { x: 4, y: 3 }) {
     *slot = Some('a');
   }

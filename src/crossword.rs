@@ -47,6 +47,10 @@ impl Crossword {
       '\u{2545}', '\u{2549}', '\u{2548}', '\u{254B}',
     ];
 
+    let u_in_bounds = self.grid.in_bounds(pos + Diff { x: 0, y: -1 });
+    let self_in_bounds = self.grid.in_bounds(pos + Diff { x: 0, y: 0 });
+    let l_in_bounds = self.grid.in_bounds(pos + Diff { x: -1, y: 0 });
+
     let ul = self.is_wall(pos + Diff { x: -1, y: -1 });
     let ur = self.is_wall(pos + Diff { x: 0, y: -1 });
     let dl = self.is_wall(pos + Diff { x: -1, y: 0 });
@@ -57,11 +61,55 @@ impl Crossword {
     let d_solid = dl || dr;
     let l_solid = ul || dl;
 
-    let idx = u_solid as usize
-      + ((r_solid as usize) << 1)
-      + ((d_solid as usize) << 2)
-      + ((l_solid as usize) << 3);
-    CROSSES[idx]
+    if !l_in_bounds && !u_in_bounds {
+      // ┏
+      '\u{250F}'
+    } else if !self_in_bounds {
+      if !l_in_bounds && !u_in_bounds {
+        // ┛
+        '\u{251B}'
+      } else if !l_in_bounds {
+        if u_solid {
+          // ┻
+          '\u{253B}'
+        } else {
+          // ┷
+          '\u{2537}'
+        }
+      } else if !u_in_bounds {
+        if l_solid {
+          // ┫
+          '\u{252B}'
+        } else {
+          // ┨
+          '\u{2528}'
+        }
+      } else {
+        unreachable!();
+      }
+    } else if !l_in_bounds {
+      if r_solid {
+        // ┣
+        '\u{2523}'
+      } else {
+        // ┠
+        '\u{2520}'
+      }
+    } else if !u_in_bounds {
+      if d_solid {
+        // ┳
+        '\u{2533}'
+      } else {
+        // ┯
+        '\u{252F}'
+      }
+    } else {
+      let idx = u_solid as usize
+        + ((r_solid as usize) << 1)
+        + ((d_solid as usize) << 2)
+        + ((l_solid as usize) << 3);
+      CROSSES[idx]
+    }
   }
 
   fn v_bar_at(&self, pos: Pos) -> char {
@@ -137,7 +185,18 @@ impl Entity for Crossword {
               })
             })
             .chain((0..YSCALE).map(move |dy| {
-              let tile = if dy == 0 { '+' } else { '|' };
+              let grid_pos = Pos {
+                x: self.width() as i32,
+                y,
+              };
+              let tile = if y == 0 && dy == 0 {
+                // ┓
+                '\u{2513}'
+              } else if dy == 0 {
+                self.cross_at(grid_pos)
+              } else {
+                self.v_bar_at(grid_pos)
+              };
               (
                 Draw::new(tile).with_fg(col).with_z(Z_IDX),
                 Pos {
