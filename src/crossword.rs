@@ -13,6 +13,9 @@ pub struct Crossword {
 }
 
 impl Crossword {
+  const XSCALE: i32 = 4;
+  const YSCALE: i32 = 2;
+
   pub fn from_grid(grid: Grid<Option<char>>) -> Self {
     Self { grid }
   }
@@ -23,6 +26,14 @@ impl Crossword {
 
   pub fn height(&self) -> u32 {
     self.grid.height()
+  }
+
+  pub fn screen_width(&self) -> u32 {
+    self.width() * Self::XSCALE as u32 + 1
+  }
+
+  pub fn screen_height(&self) -> u32 {
+    self.height() * Self::YSCALE as u32 + 1
   }
 
   fn is_wall(&self, pos: Pos) -> bool {
@@ -135,8 +146,6 @@ impl Crossword {
 
 impl Entity for Crossword {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
-    const XSCALE: i32 = 4;
-    const YSCALE: i32 = 2;
     let col = color::AnsiValue::grayscale(20);
 
     Box::new(
@@ -145,12 +154,12 @@ impl Entity for Crossword {
           (0..self.width() as i32)
             .flat_map(move |x| {
               let pos = Pos {
-                x: x * XSCALE,
-                y: y * YSCALE,
+                x: x * Self::XSCALE,
+                y: y * Self::YSCALE,
               };
 
-              (0..YSCALE).flat_map(move |dy| {
-                (0..XSCALE).flat_map(move |dx| {
+              (0..Self::YSCALE).flat_map(move |dy| {
+                (0..Self::XSCALE).flat_map(move |dx| {
                   let pos = pos + Diff { x: dx, y: dy };
                   let grid_pos = Pos { x, y };
                   let letter = *self.grid.get(grid_pos)?;
@@ -161,12 +170,10 @@ impl Entity for Crossword {
                     self.v_bar_at(grid_pos)
                   } else if dy == 0 {
                     self.h_bar_at(grid_pos)
+                  } else if dx == Self::XSCALE / 2 && dy == Self::YSCALE / 2 {
+                    letter.unwrap_or('\u{2573}')
                   } else {
-                    letter.unwrap_or(if dx == XSCALE / 2 && dy == YSCALE / 2 {
-                      '\u{2573}'
-                    } else {
-                      ' '
-                    })
+                    ' '
                   };
 
                   let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
@@ -178,7 +185,7 @@ impl Entity for Crossword {
                 })
               })
             })
-            .chain((0..YSCALE).map(move |dy| {
+            .chain((0..Self::YSCALE).map(move |dy| {
               let grid_pos = Pos {
                 x: self.width() as i32,
                 y,
@@ -194,14 +201,14 @@ impl Entity for Crossword {
               (
                 Draw::new(tile).with_fg(col).with_z(Z_IDX),
                 Pos {
-                  x: self.width() as i32 * XSCALE,
-                  y: y * YSCALE + dy,
+                  x: self.width() as i32 * Self::XSCALE,
+                  y: y * Self::YSCALE + dy,
                 },
               )
             }))
         })
         .chain((0..self.width() as i32).flat_map(move |x| {
-          (0..XSCALE).map(move |dx| {
+          (0..Self::XSCALE).map(move |dx| {
             let grid_pos = Pos {
               x,
               y: self.height() as i32,
@@ -217,8 +224,8 @@ impl Entity for Crossword {
             (
               Draw::new(tile).with_fg(col).with_z(Z_IDX),
               Pos {
-                x: x * XSCALE + dx,
-                y: self.height() as i32 * YSCALE,
+                x: x * Self::XSCALE + dx,
+                y: self.height() as i32 * Self::YSCALE,
               },
             )
           })
@@ -231,8 +238,8 @@ impl Entity for Crossword {
           .with_fg(col)
           .with_z(Z_IDX),
           Pos {
-            x: self.width() as i32 * XSCALE,
-            y: self.height() as i32 * YSCALE,
+            x: self.width() as i32 * Self::XSCALE,
+            y: self.height() as i32 * Self::YSCALE,
           },
         ))),
     )

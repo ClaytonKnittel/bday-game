@@ -35,6 +35,8 @@ impl Entity for Pc {
     self
   }
 
+  // TODO: pass Scene to all interactive methods (or maybe just tick?),
+  // lookup crossword with uid, use it to check that movement is valid.
   fn keypress(&mut self, key: Key) -> TermgameResult {
     match key {
       Key::Char('w') => {

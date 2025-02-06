@@ -3,15 +3,12 @@
 use std::{
   collections::{hash_map::Entry, HashMap},
   fs::File,
-  io::{BufRead, BufReader},
+  io::{BufRead, BufReader, Write},
 };
 
 use itertools::Itertools;
-use util::error::TermgameResult;
-use xword::XWord;
-
-mod dlx;
-mod xword;
+use util::{bitcode, error::TermgameResult};
+use xword_gen::xword::XWord;
 
 fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
   let mut result = HashMap::new();
@@ -97,7 +94,7 @@ fn main() -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(120000)
+    .take(119000)
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
@@ -108,9 +105,15 @@ fn main() -> TermgameResult {
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 
-  let solution = xword.solve()?.map(|&tile| tile.unwrap_or('_'));
+  let solution = xword.solve()?;
 
-  println!("Solution:\n{solution}");
+  println!("Solution:\n{}", solution.map(|&tile| tile.unwrap_or('_')));
+
+  {
+    let result = bitcode::encode(&solution);
+    let mut file = File::create("./crossword.bin")?;
+    file.write_all(&result)?;
+  }
 
   Ok(())
 }

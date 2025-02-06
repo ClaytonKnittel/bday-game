@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use bitcode::{Decode, Encode};
+
 use crate::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
@@ -29,7 +31,7 @@ pub trait MutGridlike<T>: Gridlike<T> {
   fn transpose_mut(&mut self) -> impl MutGridlike<T>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub struct Grid<T> {
   grid: Vec<T>,
   width: u32,
