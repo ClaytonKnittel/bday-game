@@ -19,6 +19,10 @@ impl Crossword {
     }
   }
 
+  pub fn from_grid(grid: Grid<Option<char>>) -> Self {
+    Self { grid }
+  }
+
   pub fn width(&self) -> u32 {
     self.grid.width()
   }
@@ -53,6 +57,12 @@ impl Entity for Crossword {
                     '|'
                   } else if dy == 0 {
                     '-'
+                  } else if let Some(&Some(c)) = self.grid.get(Pos { x, y }) {
+                    if dx == XSCALE / 2 && dy == YSCALE / 2 {
+                      c
+                    } else {
+                      ' '
+                    }
                   } else {
                     ' '
                   };

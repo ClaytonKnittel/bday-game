@@ -6,11 +6,20 @@ mod pc;
 use crossword::Crossword;
 use pc::Pc;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
-use util::{error::TermgameResult, pos::Pos};
+use util::{
+  error::TermgameResult,
+  grid::{Grid, MutGridlike},
+  pos::Pos,
+};
 
 fn main() -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  ev.scene().add_entity(Box::new(Crossword::new(153, 45)));
+  let mut grid = Grid::new(50, 20);
+  if let Some(slot) = grid.get_mut(Pos { x: 4, y: 3 }) {
+    *slot = Some('a');
+  }
+
+  ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
   let pc_uid = ev
     .scene()
     .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
