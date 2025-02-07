@@ -481,7 +481,8 @@ impl XWord {
     let mut dlx = Dlx::new(constraints, word_assignments);
     let answer_grid = self.build_grid_from_assignments(
       dlx
-        .find_any_solution_names()
+        .find_solution_names()
+        .next()
         .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
     )?;
     Ok(answer_grid)
