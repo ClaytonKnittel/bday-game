@@ -273,190 +273,23 @@ where
   }
 }
 
+enum ChooseNextItemResult {
+  Continue,
+  FoundSolution,
+}
+
+enum ExploreNextChoiceResult {
+  Continue,
+  Done,
+}
+
 pub struct Dlx<I, N> {
   num_primary_items: usize,
   headers: Vec<Header<I>>,
   body: Vec<Node<N>>,
 }
 
-impl<I, N> Dlx<I, N>
-where
-  I: Hash + Eq + Clone + Debug,
-  N: Hash + Eq + Clone + Debug,
-{
-  pub fn new<U, S, C, D>(items: U, subsets: S) -> Self
-  where
-    U: IntoIterator<Item = (I, HeaderType)>,
-    S: IntoIterator<Item = (N, C)>,
-    C: IntoIterator<Item = D>,
-    D: Into<Constraint<I>>,
-  {
-    Self::construct(items, subsets)
-  }
-
-  fn construct<U, S, C, D>(items: U, subsets: S) -> Self
-  where
-    U: IntoIterator<Item = (I, HeaderType)>,
-    S: IntoIterator<Item = (N, C)>,
-    C: IntoIterator<Item = D>,
-    D: Into<Constraint<I>>,
-  {
-    let mut headers = vec![Header {
-      item: None,
-      node: ListNodeI { prev: 0, next: 1 },
-      header_type: HeaderType::Primary,
-    }];
-    let mut item_map = HashMap::new();
-    let mut body = Vec::new();
-    let mut last_start_index;
-    let mut subset_names = HashSet::new();
-
-    // Push phony node to first element of body.
-    body.push(Node::Boundary {
-      name: None,
-      first_for_prev: 0,
-      last_for_next: 0,
-    });
-
-    let (primary_headers, secondary_headers): (Vec<_>, Vec<_>) =
-      items
-        .into_iter()
-        .partition(|(_, header_type)| match header_type {
-          HeaderType::Primary => true,
-          HeaderType::Secondary => false,
-        });
-
-    let primary_headers_len = primary_headers.len() as u32;
-    headers.extend(
-      primary_headers
-        .into_iter()
-        .chain(secondary_headers)
-        .enumerate()
-        .map(|(idx, (item, header_type))| {
-          let new_idx = idx + 1;
-          if item_map.insert(item.clone(), new_idx).is_some() {
-            panic!("Duplicate item {:?}", item);
-          }
-          body.push(Node::Normal {
-            item_node: ListNodeI {
-              prev: new_idx,
-              next: new_idx,
-            },
-            node_type: NodeType::Header { size: 0 },
-          });
-
-          Header {
-            item: Some(item),
-            node: ListNodeI {
-              prev: new_idx as u32 - 1,
-              next: new_idx as u32 + 1,
-            },
-            header_type,
-          }
-        }),
-    );
-    let last_idx = headers.len();
-    headers.push(Header {
-      item: None,
-      node: ListNodeI {
-        prev: last_idx as u32 - 1,
-        next: primary_headers_len + 1,
-      },
-      header_type: HeaderType::Secondary,
-    });
-    headers.get_mut(0).unwrap().node.prev = primary_headers_len;
-    headers
-      .get_mut(primary_headers_len as usize)
-      .unwrap()
-      .node
-      .next = 0;
-    headers
-      .get_mut(primary_headers_len as usize + 1)
-      .unwrap()
-      .node
-      .prev = last_idx as u32;
-    headers.get_mut(last_idx).unwrap().node.next = primary_headers_len + 1;
-
-    body.push(Node::Boundary {
-      name: None,
-      first_for_prev: 0,
-      last_for_next: 0,
-    });
-
-    for (name, constraints) in subsets {
-      if !subset_names.insert(name.clone()) {
-        panic!("Duplicate subset name: {name:?}");
-      }
-
-      last_start_index = body.len();
-      constraints.into_iter().for_each(|constraint| {
-        let constraint: Constraint<I> = constraint.into();
-        let idx = body.len();
-
-        let header_idx = *item_map
-          .get(constraint.item())
-          .unwrap_or_else(|| panic!("Unknown item {:?}", constraint.item()));
-        let header = body.get_mut(header_idx).unwrap();
-        let prev_idx = header.prev();
-
-        debug_assert!(
-          matches!(
-            (headers.get(header_idx).unwrap(), &constraint),
-            (
-              Header {
-                header_type: HeaderType::Primary,
-                ..
-              },
-              Constraint::Primary(_),
-            ) | (
-              Header {
-                header_type: HeaderType::Secondary,
-                ..
-              },
-              Constraint::Secondary(_),
-            )
-          ),
-          "Expect constraint type to match item type (primary vs. secondary)"
-        );
-
-        header.set_prev(idx);
-        *header.len_mut() += 1;
-        body.get_mut(prev_idx).unwrap().set_next(idx);
-
-        body.push(Node::Normal {
-          item_node: ListNodeI {
-            prev: prev_idx,
-            next: header_idx,
-          },
-          node_type: NodeType::Body {
-            color: constraint.color(),
-            top: header_idx as u32,
-          },
-        });
-      });
-
-      let last_idx = body.len() - 1;
-      if let Some(Node::Boundary { last_for_next, .. }) = body.get_mut(last_start_index - 1) {
-        *last_for_next = last_idx;
-      } else {
-        dlx_unreachable!();
-      }
-
-      body.push(Node::Boundary {
-        name: Some(name),
-        first_for_prev: last_start_index,
-        last_for_next: 0,
-      });
-    }
-
-    let num_primary_items = headers.first().unwrap().node.prev as usize;
-    Dlx {
-      headers,
-      body,
-      num_primary_items,
-    }
-  }
-
+impl<I, N> Dlx<I, N> {
   fn header(&self, idx: usize) -> &Header<I> {
     debug_assert!((..self.headers.len()).contains(&idx));
     unsafe { self.headers.get_unchecked(idx) }
@@ -518,25 +351,6 @@ where
       }
     }
     dlx_unreachable!("Unexpected boundary node found in queue: {p}");
-  }
-
-  fn item_name(&self, idx: usize) -> I {
-    debug_assert!(matches!(
-      self.body_node(idx),
-      Node::Normal {
-        node_type: NodeType::Body { .. },
-        ..
-      }
-    ));
-    if let Node::Normal {
-      node_type: NodeType::Body { top, .. },
-      ..
-    } = self.body_node(idx)
-    {
-      self.header(*top as usize).item.clone().unwrap()
-    } else {
-      dlx_unreachable!()
-    }
   }
 
   fn iterate_items(&self, idx: usize) -> impl Iterator<Item = usize> + '_ {
@@ -833,13 +647,84 @@ where
     best_opt.0
   }
 
-  fn set_name_for_node(&self, idx: usize) -> N {
-    ((idx + 1)..)
-      .find_map(|q| match self.body_node(q) {
-        Node::Boundary { name, .. } => Some(name.clone().unwrap()),
-        Node::Normal { .. } => None,
-      })
-      .unwrap()
+  #[must_use]
+  fn choose_next_item(&mut self, solution: &mut Vec<usize>) -> ChooseNextItemResult {
+    match self.choose_item() {
+      Some(item) => {
+        let item = item as usize;
+        solution.push(item);
+        self.cover(item);
+        ChooseNextItemResult::Continue
+      }
+      None => ChooseNextItemResult::FoundSolution,
+    }
+  }
+
+  #[must_use]
+  fn explore_next_choice(&mut self, solution: &mut Vec<usize>) -> ExploreNextChoiceResult {
+    while let Some(p) = solution.pop() {
+      if let Node::Normal {
+        node_type: NodeType::Body { .. },
+        ..
+      } = self.node(p)
+      {
+        self.uncover_remaining_choices(p);
+      }
+
+      // Try exploring the next choice.
+      let p = self.node(p).next();
+
+      match self.node(p) {
+        Node::Normal {
+          node_type: NodeType::Header { .. },
+          ..
+        } => {
+          // We have exhausted all options under this item, so continue to the
+          // previous item.
+          self.uncover(p);
+        }
+        Node::Normal {
+          node_type: NodeType::Body { .. },
+          ..
+        } => {
+          // We can try exploring this subset.
+          solution.push(p);
+          self.cover_remaining_choices(p);
+          return ExploreNextChoiceResult::Continue;
+        }
+        Node::Boundary { .. } => dlx_unreachable!("Unexpected boundary node found in queue: {p}"),
+      }
+    }
+
+    ExploreNextChoiceResult::Done
+  }
+
+  fn find_solutions(&mut self) -> impl Iterator<Item = Vec<usize>> {
+    DlxIterator::new(self, |_, idx| idx)
+  }
+}
+
+impl<I, N> Dlx<I, N>
+where
+  I: Clone,
+{
+  fn item_name(&self, idx: usize) -> I {
+    debug_assert!(matches!(
+      self.body_node(idx),
+      Node::Normal {
+        node_type: NodeType::Body { .. },
+        ..
+      }
+    ));
+    if let Node::Normal {
+      node_type: NodeType::Body { top, .. },
+      ..
+    } = self.body_node(idx)
+    {
+      self.header(*top as usize).item.clone().unwrap()
+    } else {
+      dlx_unreachable!()
+    }
   }
 
   fn items_for_node(&self, idx: usize) -> impl Iterator<Item = Constraint<I>> + '_ {
@@ -850,152 +735,266 @@ where
         None => self.item_name(item_idx).into(),
       })
   }
+}
 
-  fn find_all_solutions_idx(&mut self, max_solutions: Option<usize>) -> Vec<Vec<usize>>
-  where
-    I: Debug,
-    N: Debug,
-  {
-    let mut solutions = Vec::new();
-    let mut solution = Vec::new();
-
-    'cover_new_item: loop {
-      match self.choose_item() {
-        Some(item) => {
-          let item = item as usize;
-          solution.push(item);
-          self.cover(item);
-        }
-        None => {
-          solutions.push(solution.clone());
-
-          if let Some(max_solutions) = max_solutions {
-            // Undo all changes we've made to the data structure before
-            // returning, leaving it unmodified.
-            if solutions.len() >= max_solutions {
-              solution.iter().rev().for_each(|&p| {
-                self.uncover_remaining_choices(p);
-                self.uncover(self.to_top(p));
-              });
-              break;
-            }
-          }
-        }
-      }
-
-      while let Some(p) = solution.pop() {
-        if let Node::Normal {
-          node_type: NodeType::Body { .. },
-          ..
-        } = self.node(p)
-        {
-          self.uncover_remaining_choices(p);
-        }
-
-        // Try exploring the next choice.
-        let p = self.node(p).next();
-
-        match self.node(p) {
-          Node::Normal {
-            node_type: NodeType::Header { .. },
-            ..
-          } => {
-            // We have exhausted all options under this item, so continue to the
-            // previous item.
-            self.uncover(p);
-          }
-          Node::Normal {
-            node_type: NodeType::Body { .. },
-            ..
-          } => {
-            // We can try exploring this subset.
-            solution.push(p);
-            self.cover_remaining_choices(p);
-            continue 'cover_new_item;
-          }
-          Node::Boundary { .. } => dlx_unreachable!("Unexpected boundary node found in queue: {p}"),
-        }
-      }
-
-      break;
-    }
-
-    solutions
-  }
-
-  pub fn find_any_solution_names(&mut self) -> Option<impl Iterator<Item = N> + '_>
-  where
-    I: Debug,
-    N: Debug,
-  {
-    let mut solutions = self.find_all_solutions_idx(Some(1));
-    solutions
-      .pop()
-      .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
-  }
-
-  pub fn find_solution_names(&mut self) -> Option<impl Iterator<Item = N> + '_>
-  where
-    I: Debug,
-    N: Debug,
-  {
-    let mut solutions = self.find_all_solutions_idx(Some(2));
-    debug_assert_eq!(solutions.len(), 1);
-    solutions
-      .pop()
-      .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
-  }
-
-  pub fn find_all_solution_colors(&mut self) -> impl Iterator<Item = HashMap<I, u32>> + '_
-  where
-    I: Debug,
-    N: Debug,
-  {
-    self
-      .find_all_solutions_idx(None)
-      .into_iter()
-      .map(|solution| {
-        solution
-          .iter()
-          .fold(HashMap::new(), |secondary_assignments, &p| {
-            self
-              .items_for_node(p)
-              .fold(secondary_assignments, |mut secondary_assignments, c| {
-                if let Constraint::Secondary(ColorItem { item, color }) = c {
-                  if let Some(prev_color) = secondary_assignments.insert(item, color) {
-                    debug_assert_eq!(color, prev_color);
-                  }
-                }
-                secondary_assignments
-              })
-          })
+impl<I, N> Dlx<I, N>
+where
+  N: Clone,
+{
+  fn set_name_for_node(&self, idx: usize) -> N {
+    ((idx + 1)..)
+      .find_map(|q| match self.body_node(q) {
+        Node::Boundary { name, .. } => Some(name.clone().unwrap()),
+        Node::Normal { .. } => None,
       })
+      .unwrap()
   }
 
-  pub fn find_solution_colors(&mut self) -> Option<HashMap<I, u32>>
-  where
-    I: Debug,
-    N: Debug,
-  {
-    let mut solutions = self.find_all_solutions_idx(Some(2));
-    debug_assert_eq!(solutions.len(), 1);
-    solutions.pop().map(|solution| {
+  pub fn find_solution_names(&mut self) -> impl Iterator<Item = Vec<N>> + '_ {
+    self.find_solutions().map(|solution| {
       solution
-        .iter()
-        .fold(HashMap::new(), |secondary_assignments, &p| {
-          self
-            .items_for_node(p)
-            .fold(secondary_assignments, |mut secondary_assignments, c| {
-              if let Constraint::Secondary(ColorItem { item, color }) = c {
-                if let Some(prev_color) = secondary_assignments.insert(item, color) {
-                  debug_assert_eq!(color, prev_color);
-                }
-              }
-              secondary_assignments
-            })
-        })
+        .into_iter()
+        .map(|p| self.set_name_for_node(p))
+        .collect()
     })
   }
+}
+
+impl<I, N> Dlx<I, N>
+where
+  I: Hash + Eq + Clone + Debug,
+  N: Hash + Eq + Clone + Debug,
+{
+  pub fn new<U, S, C, D>(items: U, subsets: S) -> Self
+  where
+    U: IntoIterator<Item = (I, HeaderType)>,
+    S: IntoIterator<Item = (N, C)>,
+    C: IntoIterator<Item = D>,
+    D: Into<Constraint<I>>,
+  {
+    Self::construct(items, subsets)
+  }
+
+  fn construct<U, S, C, D>(items: U, subsets: S) -> Self
+  where
+    U: IntoIterator<Item = (I, HeaderType)>,
+    S: IntoIterator<Item = (N, C)>,
+    C: IntoIterator<Item = D>,
+    D: Into<Constraint<I>>,
+  {
+    let mut headers = vec![Header {
+      item: None,
+      node: ListNodeI { prev: 0, next: 1 },
+      header_type: HeaderType::Primary,
+    }];
+    let mut item_map = HashMap::new();
+    let mut body = Vec::new();
+    let mut last_start_index;
+    let mut subset_names = HashSet::new();
+
+    // Push phony node to first element of body.
+    body.push(Node::Boundary {
+      name: None,
+      first_for_prev: 0,
+      last_for_next: 0,
+    });
+
+    let (primary_headers, secondary_headers): (Vec<_>, Vec<_>) =
+      items
+        .into_iter()
+        .partition(|(_, header_type)| match header_type {
+          HeaderType::Primary => true,
+          HeaderType::Secondary => false,
+        });
+
+    let primary_headers_len = primary_headers.len() as u32;
+    headers.extend(
+      primary_headers
+        .into_iter()
+        .chain(secondary_headers)
+        .enumerate()
+        .map(|(idx, (item, header_type))| {
+          let new_idx = idx + 1;
+          if item_map.insert(item.clone(), new_idx).is_some() {
+            panic!("Duplicate item {:?}", item);
+          }
+          body.push(Node::Normal {
+            item_node: ListNodeI {
+              prev: new_idx,
+              next: new_idx,
+            },
+            node_type: NodeType::Header { size: 0 },
+          });
+
+          Header {
+            item: Some(item),
+            node: ListNodeI {
+              prev: new_idx as u32 - 1,
+              next: new_idx as u32 + 1,
+            },
+            header_type,
+          }
+        }),
+    );
+    let last_idx = headers.len();
+    headers.push(Header {
+      item: None,
+      node: ListNodeI {
+        prev: last_idx as u32 - 1,
+        next: primary_headers_len + 1,
+      },
+      header_type: HeaderType::Secondary,
+    });
+    headers.get_mut(0).unwrap().node.prev = primary_headers_len;
+    headers
+      .get_mut(primary_headers_len as usize)
+      .unwrap()
+      .node
+      .next = 0;
+    headers
+      .get_mut(primary_headers_len as usize + 1)
+      .unwrap()
+      .node
+      .prev = last_idx as u32;
+    headers.get_mut(last_idx).unwrap().node.next = primary_headers_len + 1;
+
+    body.push(Node::Boundary {
+      name: None,
+      first_for_prev: 0,
+      last_for_next: 0,
+    });
+
+    for (name, constraints) in subsets {
+      if !subset_names.insert(name.clone()) {
+        panic!("Duplicate subset name: {name:?}");
+      }
+
+      last_start_index = body.len();
+      constraints.into_iter().for_each(|constraint| {
+        let constraint: Constraint<I> = constraint.into();
+        let idx = body.len();
+
+        let header_idx = *item_map
+          .get(constraint.item())
+          .unwrap_or_else(|| panic!("Unknown item {:?}", constraint.item()));
+        let header = body.get_mut(header_idx).unwrap();
+        let prev_idx = header.prev();
+
+        debug_assert!(
+          matches!(
+            (headers.get(header_idx).unwrap(), &constraint),
+            (
+              Header {
+                header_type: HeaderType::Primary,
+                ..
+              },
+              Constraint::Primary(_),
+            ) | (
+              Header {
+                header_type: HeaderType::Secondary,
+                ..
+              },
+              Constraint::Secondary(_),
+            )
+          ),
+          "Expect constraint type to match item type (primary vs. secondary)"
+        );
+
+        header.set_prev(idx);
+        *header.len_mut() += 1;
+        body.get_mut(prev_idx).unwrap().set_next(idx);
+
+        body.push(Node::Normal {
+          item_node: ListNodeI {
+            prev: prev_idx,
+            next: header_idx,
+          },
+          node_type: NodeType::Body {
+            color: constraint.color(),
+            top: header_idx as u32,
+          },
+        });
+      });
+
+      let last_idx = body.len() - 1;
+      if let Some(Node::Boundary { last_for_next, .. }) = body.get_mut(last_start_index - 1) {
+        *last_for_next = last_idx;
+      } else {
+        dlx_unreachable!();
+      }
+
+      body.push(Node::Boundary {
+        name: Some(name),
+        first_for_prev: last_start_index,
+        last_for_next: 0,
+      });
+    }
+
+    let num_primary_items = headers.first().unwrap().node.prev as usize;
+    Dlx {
+      headers,
+      body,
+      num_primary_items,
+    }
+  }
+
+  // pub fn find_any_solution_names(&mut self) -> Option<impl Iterator<Item = N> + '_> {
+  //   let mut solutions = self.find_all_solutions_idx(Some(1));
+  //   solutions
+  //     .pop()
+  //     .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
+  // }
+
+  // pub fn find_solution_names(&mut self) -> Option<impl Iterator<Item = N> + '_> {
+  //   let mut solutions = self.find_all_solutions_idx(Some(2));
+  //   debug_assert_eq!(solutions.len(), 1);
+  //   solutions
+  //     .pop()
+  //     .map(|solution| solution.into_iter().map(|p| self.set_name_for_node(p)))
+  // }
+
+  // pub fn find_all_solution_colors(&mut self) -> impl Iterator<Item = HashMap<I, u32>> + '_ {
+  //   self
+  //     .find_all_solutions_idx(None)
+  //     .into_iter()
+  //     .map(|solution| {
+  //       solution
+  //         .iter()
+  //         .fold(HashMap::new(), |secondary_assignments, &p| {
+  //           self
+  //             .items_for_node(p)
+  //             .fold(secondary_assignments, |mut secondary_assignments, c| {
+  //               if let Constraint::Secondary(ColorItem { item, color }) = c {
+  //                 if let Some(prev_color) = secondary_assignments.insert(item, color) {
+  //                   debug_assert_eq!(color, prev_color);
+  //                 }
+  //               }
+  //               secondary_assignments
+  //             })
+  //         })
+  //     })
+  // }
+
+  // pub fn find_solution_colors(&mut self) -> Option<HashMap<I, u32>> {
+  //   let mut solutions = self.find_all_solutions_idx(Some(2));
+  //   debug_assert_eq!(solutions.len(), 1);
+  //   solutions.pop().map(|solution| {
+  //     solution
+  //       .iter()
+  //       .fold(HashMap::new(), |secondary_assignments, &p| {
+  //         self
+  //           .items_for_node(p)
+  //           .fold(secondary_assignments, |mut secondary_assignments, c| {
+  //             if let Constraint::Secondary(ColorItem { item, color }) = c {
+  //               if let Some(prev_color) = secondary_assignments.insert(item, color) {
+  //                 debug_assert_eq!(color, prev_color);
+  //               }
+  //             }
+  //             secondary_assignments
+  //           })
+  //       })
+  //   })
+  // }
 }
 
 impl<I, N> Debug for Dlx<I, N>
@@ -1014,6 +1013,77 @@ where
   }
 }
 
+fn noop_map<I, N, R>(_: &mut Dlx<I, N>, value: R) -> R {
+  value
+}
+
+#[derive(Debug)]
+pub struct DlxIterator<'a, I, N, F> {
+  dlx: &'a mut Dlx<I, N>,
+  partial_solution: Vec<usize>,
+  f: F,
+}
+
+impl<'a, I, N, F> DlxIterator<'a, I, N, F> {
+  fn new(dlx: &'a mut Dlx<I, N>, f: F) -> Self {
+    Self {
+      dlx,
+      partial_solution: Vec::new(),
+      f,
+    }
+  }
+}
+
+impl<I, N, F, R> Iterator for DlxIterator<'_, I, N, F>
+where
+  F: FnMut(&Dlx<I, N>, usize) -> R,
+{
+  type Item = Vec<R>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    loop {
+      // This should only be false the very first call to `next()`, or if
+      // `next()` is called after `None` is returned to indicate end of
+      // iteration.
+      if !self.partial_solution.is_empty() {
+        if let ExploreNextChoiceResult::Done =
+          self.dlx.explore_next_choice(&mut self.partial_solution)
+        {
+          return None;
+        }
+      }
+
+      if let ChooseNextItemResult::FoundSolution =
+        self.dlx.choose_next_item(&mut self.partial_solution)
+      {
+        let mut result = Vec::with_capacity(self.partial_solution.len());
+        for idx in self.partial_solution.iter().cloned() {
+          result.push((self.f)(self.dlx, idx));
+        }
+        return Some(result);
+        // return Some(
+        //   self
+        //     .partial_solution
+        //     .iter()
+        //     .map(|&idx| (self.f)(self.dlx, idx))
+        //     .collect(),
+        // );
+      }
+    }
+  }
+}
+
+impl<I, N, F> Drop for DlxIterator<'_, I, N, F> {
+  fn drop(&mut self) {
+    // Undo all changes we've made to the data structure before dropping,
+    // leaving it unmodified.
+    self.partial_solution.iter().rev().for_each(|&p| {
+      self.dlx.uncover_remaining_choices(p);
+      self.dlx.uncover(self.dlx.to_top(p));
+    });
+  }
+}
+
 #[cfg(test)]
 mod test {
   use itertools::Itertools;
@@ -1027,8 +1097,9 @@ mod test {
     let mut dlx: Dlx<u32, u32> = Dlx::new::<_, _, Vec<_>, u32>(vec![], vec![]);
 
     assert!(dlx
-      .find_solution_names()
-      .is_some_and(|solution| solution.eq(vec![].into_iter())));
+      .find_solutions()
+      .next()
+      .is_some_and(|solution| solution.eq(&vec![])));
   }
 
   #[test]
@@ -1036,8 +1107,9 @@ mod test {
     let mut dlx = Dlx::new(vec![(1, HeaderType::Primary)], vec![(0, vec![1])]);
 
     assert!(dlx
-      .find_solution_names()
-      .is_some_and(|solution| solution.eq(vec![0].into_iter())));
+      .find_solutions()
+      .next()
+      .is_some_and(|solution| solution.eq(&vec![0])));
   }
 
   #[test]
@@ -1056,9 +1128,10 @@ mod test {
       ],
     );
 
-    assert!(dlx
-      .find_solution_names()
-      .is_some_and(|solution| { solution.sorted().eq(vec![1, 3].into_iter()) }));
+    assert!(dlx.find_solutions().next().is_some_and(|mut solution| {
+      solution.sort();
+      solution.eq(&vec![1, 3])
+    }));
   }
 
   #[test]

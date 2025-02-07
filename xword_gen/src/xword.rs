@@ -441,15 +441,12 @@ impl XWord {
       .flat_map(move |(&id, word, is_required)| build_word_assignments(id, word, is_required))
   }
 
-  pub fn solve(&self) -> TermgameResult<Grid<Option<char>>> {
-    let constraints = self.build_constraints();
-    let word_assignments = self.build_word_assignments();
-    let mut dlx = Dlx::new(constraints, word_assignments);
+  fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<Option<char>>>
+  where
+    I: IntoIterator<Item = XWordClueAssignment>,
+  {
     let mut answer_grid = Grid::new(self.board.width(), self.board.height());
-    for XWordClueAssignment { id, clue_pos } in dlx
-      .find_any_solution_names()
-      .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?
-    {
+    for XWordClueAssignment { id, clue_pos } in iter {
       let word = self
         .required_words
         .get(&id)
@@ -475,6 +472,18 @@ impl XWord {
       }
     }
 
+    Ok(answer_grid)
+  }
+
+  pub fn solve(&self) -> TermgameResult<Grid<Option<char>>> {
+    let constraints = self.build_constraints();
+    let word_assignments = self.build_word_assignments();
+    let mut dlx = Dlx::new(constraints, word_assignments);
+    let answer_grid = self.build_grid_from_assignments(
+      dlx
+        .find_any_solution_names()
+        .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
+    )?;
     Ok(answer_grid)
   }
 }
