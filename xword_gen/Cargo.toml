@@ -7,3 +7,4 @@ edition = "2021"
 util = { path = "../util" }
 itertools = "0.14.0"
 googletest = "0.13.0"
+rand = "0.9.0"

@@ -23,9 +23,11 @@ fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
     let answer = items[2];
     // let clue = items[3];
 
-    if answer.len() <= 2
-    // || !answer.chars().all(|c| c.is_alphabetic())
-    // || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
+    let answer_len = answer.chars().count();
+    if answer_len <= 2
+      || !answer.chars().all(|c| c.is_alphabetic())
+      || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
+      || answer.chars().all_equal() && answer_len > 3
     {
       continue;
     }
@@ -94,14 +96,18 @@ fn main() -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(119000)
+    .take(170000)
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
   }
 
-  let xword = XWord::from_layout(
+  let xword = XWord::from_layout_with_required(
     sunday(),
+    ["clayton", "eugenia", "andrew", "jackson"]
+      .map(|s| s.to_owned())
+      .into_iter()
+      .collect(),
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 

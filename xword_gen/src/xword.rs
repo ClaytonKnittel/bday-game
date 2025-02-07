@@ -1,5 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 
+use rand::seq::SliceRandom;
 use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
@@ -47,13 +48,44 @@ struct XWordEntry {
 }
 
 #[derive(Clone, Debug)]
+pub struct XWordWord {
+  pub word: String,
+  pub required: bool,
+}
+
+impl XWordWord {
+  pub fn new(word: String) -> Self {
+    XWordWord {
+      word,
+      required: false,
+    }
+  }
+
+  pub fn new_required(word: String) -> Self {
+    XWordWord {
+      word,
+      required: true,
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
 pub struct XWord {
   board: Grid<bool>,
+  required_words: HashMap<u32, String>,
   bank: HashMap<u32, String>,
 }
 
 impl XWord {
   pub fn from_layout(board: &str, bank: HashSet<String>) -> TermgameResult<Self> {
+    Self::from_layout_with_required(board, HashSet::new(), bank)
+  }
+
+  pub fn from_layout_with_required(
+    board: &str,
+    required_words: HashSet<String>,
+    bank: HashSet<String>,
+  ) -> TermgameResult<Self> {
     let (width, height, board) = board.lines().try_fold(
       (None, 0, vec![]),
       |(width, height, mut board), line| -> TermgameResult<_> {
@@ -87,20 +119,30 @@ impl XWord {
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
     let board = Grid::from_vec(board, width, height as u32)?;
 
-    let bank = bank
+    let required_words: HashMap<_, _> = required_words
       .into_iter()
       .enumerate()
       .map(|(id, word)| (id as u32, word))
       .collect();
+    let bank = bank
+      .into_iter()
+      .enumerate()
+      .map(|(id, word)| ((id + required_words.len()) as u32, word))
+      .collect();
 
-    Ok(Self { board, bank })
+    Ok(Self {
+      board,
+      required_words,
+      bank,
+    })
   }
 
   #[cfg(test)]
   fn testonly_word_id(&self, word: &str) -> Option<u32> {
     self
-      .bank
+      .required_words
       .iter()
+      .chain(self.bank.iter())
       .find_map(|(&idx, bank_word)| (word == bank_word).then_some(idx))
   }
 
@@ -255,6 +297,12 @@ impl XWord {
       }))
       .chain(
         self
+          .required_words
+          .iter()
+          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Primary)),
+      )
+      .chain(
+        self
           .bank
           .iter()
           .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Secondary)),
@@ -323,31 +371,38 @@ impl XWord {
     &self,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let entry_map = self.build_entry_map();
+    let mut rng = rand::rng();
 
-    self.bank.iter().flat_map(move |(&id, word)| {
+    let mut build_word_assignments = move |id: u32, word: &str, is_required: bool| -> Vec<_> {
       let word_len = word.chars().count() as u32;
       // We need to assign each usage of a clue a unique number, so all
       // secondary constraints on the usage of that word conflict. This ensures
       // we don't reuse words in a puzzle.
       let mut clue_instance_id = 0;
 
-      entry_map
+      let mut possible_assignments: Vec<_> = entry_map
         .get(&word_len)
         .iter()
         .flat_map(|assignments| {
           assignments.iter().map(move |clue_pos| {
-            let mut constraints = vec![
-              Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone())),
-              Constraint::Secondary(ColorItem::new(
+            let word_constraint = if is_required {
+              Constraint::Primary(XWordConstraint::Clue { id })
+            } else {
+              let constraint = Constraint::Secondary(ColorItem::new(
                 XWordConstraint::Clue { id },
                 clue_instance_id,
-              )),
+              ));
+              clue_instance_id += 1;
+              constraint
+            };
+
+            let mut constraints = vec![
+              Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone())),
+              word_constraint,
             ];
             constraints.extend(self.word_letter_positions(word, clue_pos).map(|(c, pos)| {
               Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
             }));
-
-            clue_instance_id += 1;
 
             (
               XWordClueAssignment {
@@ -358,8 +413,20 @@ impl XWord {
             )
           })
         })
-        .collect::<Vec<_>>()
-    })
+        .collect();
+
+      // Shuffle the clues, so required clues aren't all clumped together at
+      // the beginning of the crossword.
+      possible_assignments.shuffle(&mut rng);
+      possible_assignments
+    };
+
+    self
+      .required_words
+      .iter()
+      .map(|(id, word)| (id, word, true))
+      .chain(self.bank.iter().map(|(id, word)| (id, word, false)))
+      .flat_map(move |(&id, word, is_required)| build_word_assignments(id, word, is_required))
   }
 
   pub fn solve(&self) -> TermgameResult<Grid<Option<char>>> {
@@ -372,8 +439,9 @@ impl XWord {
       .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?
     {
       let word = self
-        .bank
+        .required_words
         .get(&id)
+        .or_else(|| self.bank.get(&id))
         .ok_or_else(|| TermgameError::Internal(format!("Unknown word id {id}")))?;
       for (c, tile_pos) in self.word_letter_positions(word, &clue_pos) {
         let tile = answer_grid.get_mut(tile_pos).ok_or_else(|| {

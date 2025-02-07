@@ -178,7 +178,7 @@ impl Entity for Crossword {
 
                   let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
                   if letter.is_none() && dx != 0 && dy != 0 {
-                    draw = draw.with_bold().with_fg(color::AnsiValue::grayscale(0));
+                    draw = draw.with_bold().with_fg(color::AnsiValue::grayscale(22));
                   }
 
                   Some((draw, pos))
