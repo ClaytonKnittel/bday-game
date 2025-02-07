@@ -96,7 +96,7 @@ fn main() -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(170000)
+    .take(180000)
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
@@ -104,10 +104,36 @@ fn main() -> TermgameResult {
 
   let xword = XWord::from_layout_with_required(
     sunday(),
-    ["clayton", "eugenia", "andrew", "jackson"]
-      .map(|s| s.to_owned())
-      .into_iter()
-      .collect(),
+    [
+      "clayton",
+      "eugenia",
+      "andrew",
+      "jackson",
+      "matt",
+      "bchan",
+      "austen",
+      "paul",
+      "kevin",
+      "kmoney",
+      "paige",
+      "kyle",
+      "nina",
+      "anne",
+      "ethan",
+      "jonathan",
+      "rose",
+      "alex",
+      "cindy",
+      "cooper",
+      "jessica",
+      "kathy",
+      "laney",
+      "sruthi",
+      "christina",
+    ]
+    .map(|s| s.to_owned())
+    .into_iter()
+    .collect(),
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 
