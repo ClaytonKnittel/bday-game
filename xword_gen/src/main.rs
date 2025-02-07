@@ -4,6 +4,7 @@ use std::{
   collections::{hash_map::Entry, HashMap},
   fs::{self, File},
   io::{BufRead, BufReader, Write},
+  iter::once,
 };
 
 use itertools::Itertools;
@@ -100,39 +101,63 @@ fn main() -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(180000)
+    .take(50000)
+    // .chain(
+    //   [
+    //     "ingoodconscience",
+    //     "icecreamheadache",
+    //     "areyouamanoramouse",
+    //     "jerusalemartichoke",
+    //     "comingoutparty",
+    //     "iminbigtrouble",
+    //     "waterbuffalo",
+    //     "socialsecurity",
+    //     "opentoquestion",
+    //     "beammeupscotty",
+    //     "iwillalwaysloveyou",
+    //     "kissingandmakingup",
+    //     "aturnfortheworse",
+    //     "detectivestories",
+    //     "beverlyhills",
+    //     "imonyourside",
+    //     "onceinawhile",
+    //     "statetrooper",
+    //     "cruxoftheissue",
+    //     "genetherapy",
+    //     "thesmithsonian",
+    //     "comedownthepike",
+    //   ]
+    //   .into_iter()
+    //   .map(|s| (s.to_owned(), 1)),
+    // )
+    // .chain((3..=15).map(|len| (once('a').cycle().take(len).collect(), 1)))
     .collect();
   for (word, freq) in words.iter().take(5) {
     println!("{word} occurs {freq} times");
   }
 
-  const REQUIRED: [&str; 25] = [
-    "clayton",
-    "eugenia",
-    "andrew",
-    "jackson",
-    "matt",
-    "bchan",
-    "austen",
-    "paul",
-    "kevin",
-    "kmoney",
-    "paige",
-    "kyle",
-    "nina",
-    "anne",
-    "ethan",
-    "jonathan",
-    "rose",
-    "alex",
-    "cindy",
-    "cooper",
-    "jessica",
-    "kathy",
-    "laney",
-    "sruthi",
-    "christina",
-  ];
+  let mut hist = HashMap::<usize, u32>::new();
+  for (word, _) in words.iter() {
+    match hist.entry(word.chars().count()) {
+      Entry::Occupied(mut entry) => *entry.get_mut() += 1,
+      Entry::Vacant(entry) => {
+        entry.insert(1);
+      }
+    }
+  }
+  for size in 0..1000 {
+    if let Some(cnt) = hist.get(&size) {
+      println!("{size}: {cnt}");
+    }
+  }
+
+  const REQUIRED: [&str; 2] = ["clayton", "eugenia"];
+  // const REQUIRED: [&str; 24] = [
+  //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
+  //   "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
+  //   "cooper", "jessica", "kathy", "laney", "sruthi",
+  //   // "christina",
+  // ];
 
   // let xword = XWord::from_layout_with_required(
   //   sunday(),
@@ -141,6 +166,7 @@ fn main() -> TermgameResult {
   // )?;
   let xword = XWord::from_grid(
     mega()?,
+    // REQUIRED.map(|s| s.to_owned()).into_iter().collect(),
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 

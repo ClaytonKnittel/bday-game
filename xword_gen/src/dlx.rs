@@ -7,6 +7,23 @@ use std::{
   iter,
 };
 
+macro_rules! dlx_unreachable {
+  ($msg:expr) => {
+    if cfg!(debug_assertions) {
+      unreachable!($msg)
+    } else {
+      unsafe { std::hint::unreachable_unchecked() }
+    }
+  };
+  () => {
+    if cfg!(debug_assertions) {
+      unreachable!()
+    } else {
+      unsafe { std::hint::unreachable_unchecked() }
+    }
+  };
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct ColorItem<I> {
   item: I,
@@ -142,7 +159,7 @@ impl<I> Node<I> {
         node_type: NodeType::Body { color, .. },
         ..
       } => *color,
-      _ => unreachable!("Unexpected color() called on non-body node"),
+      _ => dlx_unreachable!("Unexpected color() called on non-body node"),
     }
   }
 
@@ -152,7 +169,7 @@ impl<I> Node<I> {
         node_type: NodeType::Body { color, .. },
         ..
       } => color,
-      _ => unreachable!("Unexpected color() called on non-body node"),
+      _ => dlx_unreachable!("Unexpected color() called on non-body node"),
     }
   }
 
@@ -162,7 +179,7 @@ impl<I> Node<I> {
         node_type: NodeType::Header { size },
         ..
       } => *size,
-      _ => unreachable!("Node::len() called on non-header node"),
+      _ => dlx_unreachable!("Node::len() called on non-header node"),
     }
   }
 
@@ -172,35 +189,35 @@ impl<I> Node<I> {
         node_type: NodeType::Header { size },
         ..
       } => size,
-      _ => unreachable!("Node::len_mut() called on non-header node"),
+      _ => dlx_unreachable!("Node::len_mut() called on non-header node"),
     }
   }
 
   fn prev(&self) -> usize {
     match self {
       Node::Normal { item_node, .. } => item_node.prev,
-      Node::Boundary { .. } => unreachable!("Cannot call Node::prev() on a Boundary node"),
+      Node::Boundary { .. } => dlx_unreachable!("Cannot call Node::prev() on a Boundary node"),
     }
   }
 
   fn set_prev(&mut self, idx: usize) {
     match self {
       Node::Normal { item_node, .. } => item_node.prev = idx,
-      Node::Boundary { .. } => unreachable!("Cannot call Node::set_prev() on a Boundary node"),
+      Node::Boundary { .. } => dlx_unreachable!("Cannot call Node::set_prev() on a Boundary node"),
     }
   }
 
   fn next(&self) -> usize {
     match self {
       Node::Normal { item_node, .. } => item_node.next,
-      Node::Boundary { .. } => unreachable!("Cannot call Node::next() on a Boundary node"),
+      Node::Boundary { .. } => dlx_unreachable!("Cannot call Node::next() on a Boundary node"),
     }
   }
 
   fn set_next(&mut self, idx: usize) {
     match self {
       Node::Normal { item_node, .. } => item_node.next = idx,
-      Node::Boundary { .. } => unreachable!("Cannot call Node::set_next() on a Boundary node"),
+      Node::Boundary { .. } => dlx_unreachable!("Cannot call Node::set_next() on a Boundary node"),
     }
   }
 }
@@ -422,7 +439,7 @@ where
       if let Some(Node::Boundary { last_for_next, .. }) = body.get_mut(last_start_index - 1) {
         *last_for_next = last_idx;
       } else {
-        unreachable!();
+        dlx_unreachable!();
       }
 
       body.push(Node::Boundary {
@@ -500,7 +517,7 @@ where
         }
       }
     }
-    unreachable!("Unexpected boundary node found in queue: {p}");
+    dlx_unreachable!("Unexpected boundary node found in queue: {p}");
   }
 
   fn item_name(&self, idx: usize) -> I {
@@ -518,7 +535,7 @@ where
     {
       self.header(*top as usize).item.clone().unwrap()
     } else {
-      unreachable!()
+      dlx_unreachable!()
     }
   }
 
@@ -556,7 +573,6 @@ where
 
   /// Remove the subset containing the node at `idx` from the grid.
   fn hide(&mut self, idx: usize) {
-    // println!("Hiding {idx}");
     let mut q = idx + 1;
     while q != idx {
       match self.body_node(q) {
@@ -581,7 +597,7 @@ where
         Node::Normal {
           node_type: NodeType::Header { .. },
           ..
-        } => unreachable!("Unexpected header encountered in hide() at index {q}"),
+        } => dlx_unreachable!("Unexpected header encountered in hide() at index {q}"),
       }
     }
   }
@@ -613,10 +629,9 @@ where
         Node::Normal {
           node_type: NodeType::Header { .. },
           ..
-        } => unreachable!("Unexpected header encountered in unhide() at index {q}"),
+        } => dlx_unreachable!("Unexpected header encountered in unhide() at index {q}"),
       }
     }
-    // println!("Unhiding {idx}");
   }
 
   /// Remove all subsets which contain the header item `idx`, and hide the item
@@ -668,9 +683,13 @@ where
         },
         ..
       } => (*color, *top as usize),
-      _ => unreachable!("Unexpected uncolored node for secondary constraint at index {idx}."),
+      _ => dlx_unreachable!("Unexpected uncolored node for secondary constraint at index {idx}."),
     };
-    // println!("Purifying {idx} (top {top}, color {color})");
+    // println!(
+    //   "Purifying {:?} (top {top}, color {})",
+    //   self.header(self.to_top(idx)).item.as_ref().unwrap(),
+    //   char::from_u32(color).unwrap_or('?')
+    // );
 
     let mut p = self.body_header(top).next();
     while p != top {
@@ -696,7 +715,7 @@ where
         },
         ..
       } => (*color, *top as usize),
-      _ => unreachable!("Unexpected uncolored node for secondary constraint at index {idx}."),
+      _ => dlx_unreachable!("Unexpected uncolored node for secondary constraint at index {idx}."),
     };
 
     let mut p = self.body_header(top).prev();
@@ -709,7 +728,10 @@ where
       }
       p = self.body_node(p).prev();
     }
-    // println!("Unpurifying {idx}");
+    // println!(
+    //   "Unpurifying {:?}",
+    //   self.header(self.to_top(idx)).item.as_ref().unwrap()
+    // );
   }
 
   fn commit(&mut self, idx: usize, top: usize) {
@@ -750,7 +772,9 @@ where
           node_type: NodeType::Header { .. },
           ..
         } => {
-          unreachable!("Unexpected header encountered in cover_remaining_choices() at index {p}")
+          dlx_unreachable!(
+            "Unexpected header encountered in cover_remaining_choices() at index {p}"
+          )
         }
       }
     }
@@ -775,7 +799,9 @@ where
           node_type: NodeType::Header { .. },
           ..
         } => {
-          unreachable!("Unexpected header encountered in uncover_remaining_choices() at index {p}")
+          dlx_unreachable!(
+            "Unexpected header encountered in uncover_remaining_choices() at index {p}"
+          )
         }
       }
     }
@@ -887,7 +913,7 @@ where
             self.cover_remaining_choices(p);
             continue 'cover_new_item;
           }
-          Node::Boundary { .. } => unreachable!("Unexpected boundary node found in queue: {p}"),
+          Node::Boundary { .. } => dlx_unreachable!("Unexpected boundary node found in queue: {p}"),
         }
       }
 
