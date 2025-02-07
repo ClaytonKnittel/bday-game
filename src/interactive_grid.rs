@@ -11,6 +11,7 @@ enum Satisfaction {
   Good,
   Ok,
   Bad,
+  Forbidden,
 }
 
 pub struct InteractiveGrid {
@@ -46,15 +47,17 @@ impl InteractiveGrid {
 
   fn length_sat(length: u32) -> Satisfaction {
     if length < 3 {
-      Satisfaction::Bad
+      Satisfaction::Forbidden
     } else if length < 5 {
       Satisfaction::Ok
     } else if length < 9 {
       Satisfaction::Good
     } else if length < 12 {
       Satisfaction::Ok
-    } else {
+    } else if length <= 15 {
       Satisfaction::Bad
+    } else {
+      Satisfaction::Forbidden
     }
   }
 
@@ -102,6 +105,7 @@ impl Entity for InteractiveGrid {
       Satisfaction::Good => color::AnsiValue::rgb(0, 4, 0),
       Satisfaction::Ok => color::AnsiValue::rgb(5, 3, 0),
       Satisfaction::Bad => color::AnsiValue::rgb(5, 0, 0),
+      Satisfaction::Forbidden => color::AnsiValue::rgb(1, 0, 0),
     };
 
     Box::new((0..self.grid.height() as i32).flat_map(move |y| {
