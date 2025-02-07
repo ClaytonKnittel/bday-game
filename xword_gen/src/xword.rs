@@ -77,7 +77,7 @@ pub struct XWord {
 }
 
 impl XWord {
-  pub fn from_grid(
+  pub fn from_grid_with_required(
     board: Grid<bool>,
     required_words: HashSet<String>,
     bank: HashSet<String>,
@@ -98,6 +98,10 @@ impl XWord {
       required_words,
       bank,
     })
+  }
+
+  pub fn from_grid(board: Grid<bool>, bank: HashSet<String>) -> TermgameResult<Self> {
+    Self::from_grid_with_required(board, HashSet::new(), bank)
   }
 
   pub fn from_layout_with_required(
@@ -138,7 +142,7 @@ impl XWord {
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
     let board = Grid::from_vec(board, width, height as u32)?;
 
-    Self::from_grid(board, required_words, bank)
+    Self::from_grid_with_required(board, required_words, bank)
   }
 
   pub fn from_layout(board: &str, bank: HashSet<String>) -> TermgameResult<Self> {

@@ -27,7 +27,7 @@ fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
     if answer_len <= 2
       || !answer.chars().all(|c| c.is_alphabetic())
       || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
-      || answer.chars().all_equal() && answer_len > 3
+      || (answer.chars().all_equal() && answer_len > 3)
     {
       continue;
     }
@@ -141,7 +141,6 @@ fn main() -> TermgameResult {
   // )?;
   let xword = XWord::from_grid(
     mega()?,
-    ["hello"].map(|s| s.to_owned()).into_iter().collect(),
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 
