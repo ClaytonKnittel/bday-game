@@ -7,7 +7,7 @@ use util::{
   pos::{Diff, Pos},
 };
 
-use crate::dlx::{ColorItem, Constraint, Dlx, HeaderType};
+use dlx::{ColorItem, Constraint, Dlx, HeaderType};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct XWordClueNumber {
@@ -269,36 +269,24 @@ impl XWord {
   fn build_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
     self
       .iterate_col_clues()
-      .map(
-        |XWordEntry {
-           number,
-           pos: _,
-           length: _,
-         }| {
-          (
-            XWordConstraint::ClueNumber(XWordClueNumber {
-              number,
-              is_row: false,
-            }),
-            HeaderType::Primary,
-          )
-        },
-      )
-      .chain(self.iterate_row_clues().map(
-        |XWordEntry {
-           number,
-           pos: _,
-           length: _,
-         }| {
-          (
-            XWordConstraint::ClueNumber(XWordClueNumber {
-              number,
-              is_row: true,
-            }),
-            HeaderType::Primary,
-          )
-        },
-      ))
+      .map(|XWordEntry { number, .. }| {
+        (
+          XWordConstraint::ClueNumber(XWordClueNumber {
+            number,
+            is_row: false,
+          }),
+          HeaderType::Primary,
+        )
+      })
+      .chain(self.iterate_row_clues().map(|XWordEntry { number, .. }| {
+        (
+          XWordConstraint::ClueNumber(XWordClueNumber {
+            number,
+            is_row: true,
+          }),
+          HeaderType::Primary,
+        )
+      }))
       .chain((0..self.board.height() as i32).flat_map(move |y| {
         (0..self.board.width() as i32).flat_map(move |x| {
           let pos = Pos { x, y };
@@ -495,16 +483,14 @@ mod tests {
 
   use std::collections::HashSet;
 
+  use dlx::{ColorItem, Constraint, HeaderType};
   use googletest::prelude::*;
   use util::{
     grid::{Grid, Gridlike},
     pos::Pos,
   };
 
-  use crate::{
-    dlx::{ColorItem, Constraint, HeaderType},
-    xword::{XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint},
-  };
+  use crate::xword::{XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint};
 
   use super::XWord;
 

@@ -72,6 +72,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "dlx"
+version = "0.1.0"
+source = "git+https://github.com/ClaytonKnittel/dlx-rs.git?rev=37655fc51d6138ae4b6510af3a977969e469d3ad#37655fc51d6138ae4b6510af3a977969e469d3ad"
+
+[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -371,6 +376,7 @@ dependencies = [
 name = "xword_gen"
 version = "0.1.0"
 dependencies = [
+ "dlx",
  "googletest",
  "itertools",
  "rand",
