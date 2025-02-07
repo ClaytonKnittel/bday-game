@@ -2,12 +2,12 @@
 
 use std::{
   collections::{hash_map::Entry, HashMap},
-  fs::File,
+  fs::{self, File},
   io::{BufRead, BufReader, Write},
 };
 
 use itertools::Itertools;
-use util::{bitcode, error::TermgameResult};
+use util::{bitcode, error::TermgameResult, grid::Grid};
 use xword_gen::xword::XWord;
 
 fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
@@ -86,6 +86,10 @@ const fn sunday() -> &'static str {
    ______X_______X________"
 }
 
+fn mega() -> TermgameResult<Grid<bool>> {
+  Ok(bitcode::decode(&fs::read("../grid.bin")?)?)
+}
+
 fn main() -> TermgameResult {
   let dict = read_dict("clues.txt")?;
 
@@ -102,38 +106,42 @@ fn main() -> TermgameResult {
     println!("{word} occurs {freq} times");
   }
 
-  let xword = XWord::from_layout_with_required(
-    sunday(),
-    [
-      "clayton",
-      "eugenia",
-      "andrew",
-      "jackson",
-      "matt",
-      "bchan",
-      "austen",
-      "paul",
-      "kevin",
-      "kmoney",
-      "paige",
-      "kyle",
-      "nina",
-      "anne",
-      "ethan",
-      "jonathan",
-      "rose",
-      "alex",
-      "cindy",
-      "cooper",
-      "jessica",
-      "kathy",
-      "laney",
-      "sruthi",
-      "christina",
-    ]
-    .map(|s| s.to_owned())
-    .into_iter()
-    .collect(),
+  const REQUIRED: [&str; 25] = [
+    "clayton",
+    "eugenia",
+    "andrew",
+    "jackson",
+    "matt",
+    "bchan",
+    "austen",
+    "paul",
+    "kevin",
+    "kmoney",
+    "paige",
+    "kyle",
+    "nina",
+    "anne",
+    "ethan",
+    "jonathan",
+    "rose",
+    "alex",
+    "cindy",
+    "cooper",
+    "jessica",
+    "kathy",
+    "laney",
+    "sruthi",
+    "christina",
+  ];
+
+  // let xword = XWord::from_layout_with_required(
+  //   sunday(),
+  //   REQUIRED.map(|s| s.to_owned()).into_iter().collect(),
+  //   words.iter().map(|(str, _)| (*str).clone()).collect(),
+  // )?;
+  let xword = XWord::from_grid(
+    mega()?,
+    ["hello"].map(|s| s.to_owned()).into_iter().collect(),
     words.iter().map(|(str, _)| (*str).clone()).collect(),
   )?;
 

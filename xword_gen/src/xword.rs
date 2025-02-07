@@ -77,8 +77,27 @@ pub struct XWord {
 }
 
 impl XWord {
-  pub fn from_layout(board: &str, bank: HashSet<String>) -> TermgameResult<Self> {
-    Self::from_layout_with_required(board, HashSet::new(), bank)
+  pub fn from_grid(
+    board: Grid<bool>,
+    required_words: HashSet<String>,
+    bank: HashSet<String>,
+  ) -> TermgameResult<Self> {
+    let required_words: HashMap<_, _> = required_words
+      .into_iter()
+      .enumerate()
+      .map(|(id, word)| (id as u32, word))
+      .collect();
+    let bank = bank
+      .into_iter()
+      .enumerate()
+      .map(|(id, word)| ((id + required_words.len()) as u32, word))
+      .collect();
+
+    Ok(Self {
+      board,
+      required_words,
+      bank,
+    })
   }
 
   pub fn from_layout_with_required(
@@ -119,22 +138,11 @@ impl XWord {
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
     let board = Grid::from_vec(board, width, height as u32)?;
 
-    let required_words: HashMap<_, _> = required_words
-      .into_iter()
-      .enumerate()
-      .map(|(id, word)| (id as u32, word))
-      .collect();
-    let bank = bank
-      .into_iter()
-      .enumerate()
-      .map(|(id, word)| ((id + required_words.len()) as u32, word))
-      .collect();
+    Self::from_grid(board, required_words, bank)
+  }
 
-    Ok(Self {
-      board,
-      required_words,
-      bank,
-    })
+  pub fn from_layout(board: &str, bank: HashSet<String>) -> TermgameResult<Self> {
+    Self::from_layout_with_required(board, HashSet::new(), bank)
   }
 
   #[cfg(test)]

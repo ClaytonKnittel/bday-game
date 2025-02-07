@@ -1,4 +1,5 @@
-use bitcode::{Decode, Encode};
+use std::collections::HashMap;
+
 use termgame::{color, draw::Draw, entity::Entity};
 use util::{
   grid::{Grid, Gridlike, MutGridlike},
@@ -12,7 +13,6 @@ enum Satisfaction {
   Bad,
 }
 
-#[derive(Encode, Decode)]
 pub struct InteractiveGrid {
   grid: Grid<bool>,
 }
@@ -24,12 +24,24 @@ impl InteractiveGrid {
     }
   }
 
+  pub fn from_grid(grid: Grid<bool>) -> Self {
+    Self { grid }
+  }
+
+  pub fn grid(&self) -> &Grid<bool> {
+    &self.grid
+  }
+
   pub fn screen_width(&self) -> u32 {
     self.grid.width() * 2 - 1
   }
 
   pub fn screen_height(&self) -> u32 {
     self.grid.height()
+  }
+
+  fn is_free(&self, pos: Pos) -> bool {
+    self.grid.get(pos).is_some_and(|&is_wall| !is_wall)
   }
 
   fn length_sat(length: u32) -> Satisfaction {
@@ -90,6 +102,22 @@ impl InteractiveGrid {
 
     Self::length_sat(row_length as u32).max(Self::length_sat(col_length as u32))
   }
+
+  fn clue_num_map(&self) -> HashMap<Pos, u32> {
+    (0..self.grid.height() as i32)
+      .flat_map(|y| {
+        (0..self.grid.width() as i32).filter_map(move |x| {
+          let pos = Pos { x, y };
+          (self.is_free(pos)
+            && (!self.is_free(pos + Diff { x: -1, y: 0 })
+              || !self.is_free(pos + Diff { x: 0, y: -1 })))
+          .then_some(pos)
+        })
+      })
+      .enumerate()
+      .map(|(idx, pos)| (pos, (idx + 1) as u32))
+      .collect()
+  }
 }
 
 impl Entity for InteractiveGrid {
@@ -101,12 +129,18 @@ impl Entity for InteractiveGrid {
     };
 
     Box::new((0..self.grid.height() as i32).flat_map(move |y| {
+      let clue_num_map = self.clue_num_map();
       (0..self.grid.width() as i32).map(move |x| {
         let pos = Pos { x, y };
         let draw = if self.grid.get(pos).is_some_and(|&selected| selected) {
           Draw::new('*')
         } else {
-          Draw::new('_').with_fg(sat_color(self.tile_sat(pos)))
+          let tile = if let Some(clue_num) = clue_num_map.get(&pos) {
+            char::from_u32(((clue_num % 10) as u8 + b'0') as u32).unwrap_or('?')
+          } else {
+            '_'
+          };
+          Draw::new(tile).with_fg(sat_color(self.tile_sat(pos)))
         };
         (draw, Pos { x: 2 * x, y })
       })

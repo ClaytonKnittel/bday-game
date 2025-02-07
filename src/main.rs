@@ -13,12 +13,14 @@ use crossword::Crossword;
 use interactive_grid::InteractiveGrid;
 use pc::Pc;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
-use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
+use util::{bitcode, error::TermgameResult, pos::Pos};
 
 const GRID_PATH: &str = "./grid.bin";
 
 fn read_grid(path: &str) -> TermgameResult<InteractiveGrid> {
-  Ok(bitcode::decode(&fs::read(path)?)?)
+  Ok(InteractiveGrid::from_grid(bitcode::decode(&fs::read(
+    path,
+  )?)?))
 }
 
 fn main() -> TermgameResult {
@@ -26,7 +28,7 @@ fn main() -> TermgameResult {
   // let grid: Grid<_> = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   // let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
 
-  let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(60, 60));
+  let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(50, 50));
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
   let pc_uid = ev
@@ -51,9 +53,9 @@ fn main() -> TermgameResult {
     Ok(())
   })?;
 
-  {
+  if false {
     let grid: &InteractiveGrid = ev.scene().entity(grid_uid)?;
-    let grid_serialized = bitcode::encode(grid);
+    let grid_serialized = bitcode::encode(grid.grid());
     let mut file = File::create(GRID_PATH)?;
     file.write_all(&grid_serialized)?;
   }
