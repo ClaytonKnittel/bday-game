@@ -41,7 +41,7 @@ impl InteractiveGrid {
   }
 
   fn is_free(&self, pos: Pos) -> bool {
-    self.grid.get(pos).is_some_and(|&is_wall| !is_wall)
+    self.grid.get(pos).is_some_and(|&is_free| is_free)
   }
 
   fn length_sat(length: u32) -> Satisfaction {
@@ -62,42 +62,18 @@ impl InteractiveGrid {
     // row sat:
     let row_length = 1
       + (1..)
-        .map_while(|dx| {
-          self
-            .grid
-            .get(pos + Diff { x: dx, y: 0 })
-            .is_some_and(|&full| !full)
-            .then_some(())
-        })
+        .map_while(|dx| self.is_free(pos + Diff { x: dx, y: 0 }).then_some(()))
         .count()
       + (1..)
-        .map_while(|dx| {
-          self
-            .grid
-            .get(pos + Diff { x: -dx, y: 0 })
-            .is_some_and(|&full| !full)
-            .then_some(())
-        })
+        .map_while(|dx| self.is_free(pos + Diff { x: -dx, y: 0 }).then_some(()))
         .count();
     // col sat:
     let col_length = 1
       + (1..)
-        .map_while(|dy| {
-          self
-            .grid
-            .get(pos + Diff { x: 0, y: dy })
-            .is_some_and(|&full| !full)
-            .then_some(())
-        })
+        .map_while(|dy| self.is_free(pos + Diff { x: 0, y: dy }).then_some(()))
         .count()
       + (1..)
-        .map_while(|dy| {
-          self
-            .grid
-            .get(pos + Diff { x: 0, y: -dy })
-            .is_some_and(|&full| !full)
-            .then_some(())
-        })
+        .map_while(|dy| self.is_free(pos + Diff { x: 0, y: -dy }).then_some(()))
         .count();
 
     Self::length_sat(row_length as u32).max(Self::length_sat(col_length as u32))
@@ -132,7 +108,7 @@ impl Entity for InteractiveGrid {
       let clue_num_map = self.clue_num_map();
       (0..self.grid.width() as i32).map(move |x| {
         let pos = Pos { x, y };
-        let draw = if self.grid.get(pos).is_some_and(|&selected| selected) {
+        let draw = if !self.is_free(pos) {
           Draw::new('*')
         } else {
           let tile = if let Some(clue_num) = clue_num_map.get(&pos) {
