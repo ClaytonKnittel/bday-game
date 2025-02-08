@@ -128,7 +128,7 @@ impl<'a> LetterFrequencyMap<'a> {
     self
       .frequencies
       .get(&word_length)
-      .map(|(_, words)| words.iter().map(|&word| word))
+      .map(|(_, words)| words.iter().cloned())
       .into_iter()
       .flatten()
   }
@@ -343,7 +343,7 @@ impl XWord {
     let word_len = word.chars().count() as u32;
     word
       .chars()
-      .zip(self.clue_letter_positions(&clue_pos, word_len))
+      .zip(self.clue_letter_positions(clue_pos, word_len))
   }
 
   fn build_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
@@ -488,130 +488,62 @@ impl XWord {
         .required_words
         .values()
         .chain(self.bank.values())
-        .into(),
+        .map(|str| str.as_str()),
     );
-
-    let build_word_constraints = |id: u32, clue_instance_id: u32, is_required: bool| {
-      let word_constraint = if is_required {
-        Constraint::Primary(XWordConstraint::Clue { id })
-      } else {
-        let constraint = Constraint::Secondary(ColorItem::new(
-          XWordConstraint::Clue { id },
-          clue_instance_id,
-        ));
-        clue_instance_id += 1;
-        constraint
-      };
-
-      let mut constraints = vec![word_constraint];
-      constraints.extend(self.word_letter_positions(clue_pos, word).map(|(c, pos)| {
-        Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
-      }));
-
-      (
-        XWordClueAssignment {
-          id,
-          clue_pos: clue_pos.clone(),
-        },
-        constraints,
-      )
-    };
-
-    // All constraints are grouped by board entry, and within each category
-    // sorted by a "fitness" score of the clue in that position.
-    let constraints = self.iter_board_entries().flat_map(|(clue_pos, length)| {
-      let clue_pos_constraint =
-        Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
-
-      frequency_map
-        .words_with_length(length)
-        .map(|word| {
-          let word_constraint = if is_required {
-            Constraint::Primary(XWordConstraint::Clue { id })
-          } else {
-            let constraint = Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Clue { id },
-              clue_instance_id,
-            ));
-            clue_instance_id += 1;
-            constraint
-          };
-
-          let mut constraints = vec![word_constraint];
-          constraints.extend(self.word_letter_positions(clue_pos, word).map(|(c, pos)| {
-            Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
-          }));
-
-          (
-            XWordClueAssignment {
-              id,
-              clue_pos: clue_pos.clone(),
-            },
-            constraints,
-          );
-
-          (
-            clue_pos_constraint.clone(),
-            self.word_likelihood_score(word, &clue_pos, &frequency_map),
-          )
-        })
-        .sorted_unstable_by(|(_, score1), (_, score2)| {
-          score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
-        })
-        .map(|(constraints, _)| constraints)
-    });
-
-    let mut build_word_assignments = move |id: u32, word: &str, is_required: bool| -> Vec<_> {
-      let word_len = word.chars().count() as u32;
-      // We need to assign each usage of a clue a unique number, so all
-      // secondary constraints on the usage of that word conflict. This ensures
-      // we don't reuse words in a puzzle.
-      let mut clue_instance_id = 0;
-
-      let mut possible_assignments: Vec<_> = entry_map
-        .get(&word_len)
-        .iter()
-        .flat_map(|assignments| {
-          assignments.iter().map(move |clue_pos| {
-            let word_constraint = if is_required {
-              Constraint::Primary(XWordConstraint::Clue { id })
-            } else {
-              let constraint = Constraint::Secondary(ColorItem::new(
-                XWordConstraint::Clue { id },
-                clue_instance_id,
-              ));
-              clue_instance_id += 1;
-              constraint
-            };
-
-            let mut constraints = vec![word_constraint];
-            constraints.extend(self.word_letter_positions(clue_pos, word).map(|(c, pos)| {
-              Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
-            }));
-
-            (
-              XWordClueAssignment {
-                id,
-                clue_pos: clue_pos.clone(),
-              },
-              constraints,
-            )
-          })
-        })
-        .collect();
-
-      // Shuffle the clues, so required clues aren't all clumped together at
-      // the beginning of the crossword.
-      possible_assignments.shuffle(&mut rng);
-      possible_assignments
-    };
-
-    self
+    let mut word_map: HashMap<_, _> = self
       .required_words
       .iter()
       .map(|(id, word)| (id, word, true))
       .chain(self.bank.iter().map(|(id, word)| (id, word, false)))
-      .flat_map(move |(&id, word, is_required)| build_word_assignments(id, word, is_required))
+      .map(|(&id, word, is_required)| (word.as_str(), (id, is_required, 0)))
+      .collect();
+
+    // All constraints are grouped by board entry, and within each category
+    // sorted by a "fitness" score of the clue in that position.
+    self
+      .iter_board_entries()
+      .flat_map(move |(clue_pos, length)| {
+        let clue_pos_constraint =
+          Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
+
+        frequency_map
+          .words_with_length(length)
+          .map(|word| {
+            let (id, is_required, clue_instance_id) = word_map.get_mut(word).unwrap();
+            let id = *id;
+
+            let word_constraint = if *is_required {
+              Constraint::Primary(XWordConstraint::Clue { id })
+            } else {
+              let constraint = Constraint::Secondary(ColorItem::new(
+                XWordConstraint::Clue { id },
+                *clue_instance_id,
+              ));
+              *clue_instance_id += 1;
+              constraint
+            };
+
+            let mut constraints = vec![clue_pos_constraint.clone(), word_constraint];
+            constraints.extend(self.word_letter_positions(&clue_pos, word).map(|(c, pos)| {
+              Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
+            }));
+
+            (
+              (
+                XWordClueAssignment {
+                  id,
+                  clue_pos: clue_pos.clone(),
+                },
+                constraints,
+              ),
+              self.word_likelihood_score(word, &clue_pos, &frequency_map),
+            )
+          })
+          .sorted_unstable_by(|(_, score1), (_, score2)| {
+            score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
+          })
+          .map(|(constraints, _)| constraints)
+      })
   }
 
   pub fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<XWordTile>>
