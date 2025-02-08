@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+itertools = "0.14.0"
 termgame = { path = "./termgame" }
 util = { path = "./util" }
+xword_gen = { path = "./xword_gen" }

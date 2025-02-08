@@ -5,19 +5,24 @@ use util::{
   grid::{Grid, Gridlike},
   pos::{Diff, Pos},
 };
+use xword_gen::xword::XWordTile;
 
 const Z_IDX: i32 = 5;
 
 pub struct Crossword {
-  grid: Grid<Option<char>>,
+  grid: Grid<XWordTile>,
 }
 
 impl Crossword {
   const XSCALE: i32 = 4;
   const YSCALE: i32 = 2;
 
-  pub fn from_grid(grid: Grid<Option<char>>) -> Self {
+  pub fn from_grid(grid: Grid<XWordTile>) -> Self {
     Self { grid }
+  }
+
+  pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
+    self.grid = new_grid;
   }
 
   pub fn width(&self) -> u32 {
@@ -37,7 +42,10 @@ impl Crossword {
   }
 
   fn is_wall(&self, pos: Pos) -> bool {
-    self.grid.get(pos).is_none_or(|tile| tile.is_none())
+    self
+      .grid
+      .get(pos)
+      .is_none_or(|tile| matches!(tile, XWordTile::Wall))
   }
 
   fn cross_at(&self, pos: Pos) -> char {
@@ -162,7 +170,7 @@ impl Entity for Crossword {
                 (0..Self::XSCALE).flat_map(move |dx| {
                   let pos = pos + Diff { x: dx, y: dy };
                   let grid_pos = Pos { x, y };
-                  let letter = *self.grid.get(grid_pos)?;
+                  let letter = self.grid.get(grid_pos)?.clone();
 
                   let tile = if dx == 0 && dy == 0 {
                     self.cross_at(grid_pos)
@@ -171,13 +179,17 @@ impl Entity for Crossword {
                   } else if dy == 0 {
                     self.h_bar_at(grid_pos)
                   } else if dx == Self::XSCALE / 2 && dy == Self::YSCALE / 2 {
-                    letter.unwrap_or('\u{2573}')
+                    match letter {
+                      XWordTile::Letter(c) => c,
+                      XWordTile::Empty => ' ',
+                      XWordTile::Wall => '\u{2573}',
+                    }
                   } else {
                     ' '
                   };
 
                   let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
-                  if letter.is_none() && dx != 0 && dy != 0 {
+                  if matches!(letter, XWordTile::Wall) && dx != 0 && dy != 0 {
                     draw = draw.with_bold().with_fg(color::AnsiValue::grayscale(22));
                   }
 

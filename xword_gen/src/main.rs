@@ -7,8 +7,13 @@ use std::{
   iter::once,
 };
 
+use dlx::DlxIteratorWithNames;
 use itertools::Itertools;
-use util::{bitcode, error::TermgameResult, grid::Grid};
+use util::{
+  bitcode,
+  error::{TermgameError, TermgameResult},
+  grid::Grid,
+};
 use xword_gen::xword::XWord;
 
 fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
@@ -101,7 +106,7 @@ fn main() -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(50000)
+    .take(120000)
     // .chain(
     //   [
     //     "ingoodconscience",
@@ -159,26 +164,41 @@ fn main() -> TermgameResult {
   //   // "christina",
   // ];
 
-  // let xword = XWord::from_layout_with_required(
-  //   sunday(),
-  //   REQUIRED.map(|s| s.to_owned()).into_iter().collect(),
-  //   words.iter().map(|(str, _)| (*str).clone()).collect(),
+  // let xword = XWord::from_layout(
+  //   saturday(),
+  //   // REQUIRED.map(|s| s.to_owned()),
+  //   words.iter().map(|(str, _)| (*str).clone()),
   // )?;
   let xword = XWord::from_grid(
     mega()?,
-    // REQUIRED.map(|s| s.to_owned()).into_iter().collect(),
-    words.iter().map(|(str, _)| (*str).clone()).collect(),
+    // REQUIRED.map(|s| s.to_owned()),
+    words.iter().map(|(str, _)| (*str).clone()),
   )?;
 
-  let solution = xword.solve()?;
-
-  println!("Solution:\n{}", solution.map(|&tile| tile.unwrap_or('_')));
-
+  let mut dlx = xword.build_dlx();
+  for farthest_vec in dlx
+    .find_solutions_stepwise()
+    .with_names()
+    .scan(Vec::new(), |longest_vec, solution_vec| {
+      Some(if solution_vec.len() > longest_vec.len() {
+        *longest_vec = solution_vec;
+        Some(longest_vec.clone())
+      } else {
+        None
+      })
+    })
+    .flatten()
+    .skip(60)
+    .take(60)
   {
-    let result = bitcode::encode(&solution);
-    let mut file = File::create("./crossword.bin")?;
-    file.write_all(&result)?;
+    println!("{}", xword.build_grid_from_assignments(farthest_vec)?);
   }
+
+  // {
+  //   let result = bitcode::encode(&solution);
+  //   let mut file = File::create("./crossword.bin")?;
+  //   file.write_all(&result)?;
+  // }
 
   Ok(())
 }

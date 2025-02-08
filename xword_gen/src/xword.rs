@@ -1,4 +1,8 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::{
+  collections::{hash_map::Entry, HashMap, HashSet},
+  fmt::Display,
+  iter,
+};
 
 use rand::seq::SliceRandom;
 use util::{
@@ -10,13 +14,13 @@ use util::{
 use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct XWordClueNumber {
+pub struct XWordClueNumber {
   number: u32,
   is_row: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct XWordCluePosition {
+pub struct XWordCluePosition {
   pos: Pos,
   clue_number: XWordClueNumber,
 }
@@ -24,7 +28,7 @@ struct XWordCluePosition {
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
 /// constraint per letter in the answer.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-enum XWordConstraint {
+pub enum XWordConstraint {
   /// ClueNumber is the clue position identifier this clue would get.
   ClueNumber(XWordClueNumber),
   /// Tiles indicate letters filled in on the board by a clue. These are
@@ -36,7 +40,7 @@ enum XWordConstraint {
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct XWordClueAssignment {
+pub struct XWordClueAssignment {
   id: u32,
   clue_pos: XWordCluePosition,
 }
@@ -69,6 +73,27 @@ impl XWordWord {
   }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum XWordTile {
+  Letter(char),
+  Empty,
+  Wall,
+}
+
+impl Display for XWordTile {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{}",
+      match self {
+        XWordTile::Letter(c) => *c,
+        XWordTile::Empty => '_',
+        XWordTile::Wall => '*',
+      }
+    )
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct XWord {
   board: Grid<bool>,
@@ -79,8 +104,8 @@ pub struct XWord {
 impl XWord {
   pub fn from_grid_with_required(
     board: Grid<bool>,
-    required_words: HashSet<String>,
-    bank: HashSet<String>,
+    required_words: impl IntoIterator<Item = String>,
+    bank: impl IntoIterator<Item = String>,
   ) -> TermgameResult<Self> {
     let required_words: HashMap<_, _> = required_words
       .into_iter()
@@ -100,8 +125,11 @@ impl XWord {
     })
   }
 
-  pub fn from_grid(board: Grid<bool>, bank: HashSet<String>) -> TermgameResult<Self> {
-    Self::from_grid_with_required(board, HashSet::new(), bank)
+  pub fn from_grid(
+    board: Grid<bool>,
+    bank: impl IntoIterator<Item = String>,
+  ) -> TermgameResult<Self> {
+    Self::from_grid_with_required(board, iter::empty(), bank)
   }
 
   pub fn from_layout_with_required(
@@ -429,11 +457,17 @@ impl XWord {
       .flat_map(move |(&id, word, is_required)| build_word_assignments(id, word, is_required))
   }
 
-  fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<Option<char>>>
+  pub fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<XWordTile>>
   where
     I: IntoIterator<Item = XWordClueAssignment>,
   {
-    let mut answer_grid = Grid::new(self.board.width(), self.board.height());
+    let mut answer_grid = self.board.map(|&is_free| {
+      if is_free {
+        XWordTile::Empty
+      } else {
+        XWordTile::Wall
+      }
+    });
     for XWordClueAssignment { id, clue_pos } in iter {
       let word = self
         .required_words
@@ -445,7 +479,7 @@ impl XWord {
           TermgameError::Internal(format!("Position {tile_pos} is out of bounds"))
         })?;
         match tile {
-          Some(existing_c) => {
+          XWordTile::Letter(existing_c) => {
             if c != *existing_c {
               return Err(
                 TermgameError::Internal(format!(
@@ -455,7 +489,12 @@ impl XWord {
               );
             }
           }
-          None => *tile = Some(c),
+          XWordTile::Empty => {
+            *tile = XWordTile::Letter(c);
+          }
+          XWordTile::Wall => {
+            return Err(TermgameError::Internal(format!("Position {tile_pos} is a wall")).into())
+          }
         }
       }
     }
@@ -463,18 +502,21 @@ impl XWord {
     Ok(answer_grid)
   }
 
-  pub fn solve(&self) -> TermgameResult<Grid<Option<char>>> {
+  pub fn build_dlx(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
     let constraints = self.build_constraints();
     let word_assignments = self.build_word_assignments();
-    let mut dlx = Dlx::new(constraints, word_assignments);
-    let answer_grid = self.build_grid_from_assignments(
-      dlx
+    Dlx::new(constraints, word_assignments)
+  }
+
+  pub fn solve(&self) -> TermgameResult<Grid<XWordTile>> {
+    self.build_grid_from_assignments(
+      self
+        .build_dlx()
         .find_solutions()
         .with_names()
         .next()
         .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
-    )?;
-    Ok(answer_grid)
+    )
   }
 }
 
@@ -491,7 +533,9 @@ mod tests {
     pos::Pos,
   };
 
-  use crate::xword::{XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint};
+  use crate::xword::{
+    XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint, XWordTile,
+  };
 
   use super::XWord;
 
@@ -852,17 +896,20 @@ mod tests {
     assert_that!(solution, ok(anything()));
     let solution = solution.unwrap();
     expect_that!(
-      solution.get(Pos { x: 0, y: 0 }).cloned().flatten(),
-      some(any!('a', 'c'))
+      solution.get(Pos { x: 0, y: 0 }).cloned(),
+      some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
     );
     expect_that!(
-      solution.get(Pos { x: 1, y: 0 }).cloned().flatten(),
-      some(eq('b'))
+      solution.get(Pos { x: 1, y: 0 }).cloned(),
+      some(eq(&XWordTile::Letter('b')))
     );
-    expect_that!(solution.get(Pos { x: 0, y: 1 }).cloned().flatten(), none());
     expect_that!(
-      solution.get(Pos { x: 1, y: 1 }).cloned().flatten(),
-      some(any!('a', 'c'))
+      solution.get(Pos { x: 0, y: 1 }).cloned(),
+      some(eq(&XWordTile::Wall))
+    );
+    expect_that!(
+      solution.get(Pos { x: 1, y: 1 }).cloned(),
+      some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
     );
   }
 
@@ -888,14 +935,16 @@ mod tests {
     assert_that!(solution, ok(anything()));
     let solution = solution.unwrap();
 
+    use XWordTile::*;
+
     #[rustfmt::skip]
     let expected_solution = Grid::from_vec(
       vec![
-        None,      Some('h'), Some('u'), Some('g'), None,
-        Some('k'), Some('o'), Some('r'), Some('e'), Some('a'),
-        Some('i'), Some('s'), Some('b'), Some('n'), Some('s'),
-        Some('s'), Some('n'), Some('a'), Some('r'), Some('k'),
-        Some('s'), Some('i'), Some('n'), Some('e'), Some('s'),
+        Wall,        Letter('h'), Letter('u'), Letter('g'), Wall,
+        Letter('k'), Letter('o'), Letter('r'), Letter('e'), Letter('a'),
+        Letter('i'), Letter('s'), Letter('b'), Letter('n'), Letter('s'),
+        Letter('s'), Letter('n'), Letter('a'), Letter('r'), Letter('k'),
+        Letter('s'), Letter('i'), Letter('n'), Letter('e'), Letter('s'),
       ], 5, 5,
     ).unwrap();
     expect_eq!(solution, expected_solution);

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 util = { path = "../util" }
-dlx = { git = "https://github.com/ClaytonKnittel/dlx-rs.git", rev = "2f6ab0bdd881229317f8928163264a3de17f0f71" }
+dlx = { git = "https://github.com/ClaytonKnittel/dlx-rs.git", rev = "1c71071e5643e6ce77fda9ad597e2f6cbe339840" }
 itertools = "0.14.0"
 googletest = "0.13.0"
 rand = "0.9.0"
