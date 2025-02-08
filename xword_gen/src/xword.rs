@@ -1,10 +1,11 @@
 use std::{
+  cmp::Ordering,
   collections::{hash_map::Entry, HashMap, HashSet},
   fmt::Display,
   iter,
 };
 
-use rand::seq::SliceRandom;
+use itertools::Itertools;
 use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
@@ -91,6 +92,55 @@ impl Display for XWordTile {
         XWordTile::Wall => '*',
       }
     )
+  }
+}
+
+struct LetterFrequencyMap<'a> {
+  /// Map from word_length -> ((letter, index) -> count, (set of words))
+  frequencies: HashMap<u32, (HashMap<(char, u32), u32>, HashSet<&'a str>)>,
+}
+
+impl<'a> LetterFrequencyMap<'a> {
+  fn new() -> Self {
+    Self {
+      frequencies: HashMap::new(),
+    }
+  }
+
+  fn from_words(words: impl IntoIterator<Item = &'a str>) -> Self {
+    let mut map = Self::new();
+    for word in words.into_iter() {
+      map.insert(word);
+    }
+    map
+  }
+
+  fn insert(&mut self, word: &'a str) {
+    let len = word.chars().count() as u32;
+    let (char_map, words) = self.frequencies.entry(len).or_default();
+    for (idx, letter) in word.chars().enumerate() {
+      *char_map.entry((letter, idx as u32)).or_default() += 1;
+    }
+    words.insert(word);
+  }
+
+  fn words_with_length(&self, word_length: u32) -> impl Iterator<Item = &'a str> + '_ {
+    self
+      .frequencies
+      .get(&word_length)
+      .map(|(_, words)| words.iter().map(|&word| word))
+      .into_iter()
+      .flatten()
+  }
+
+  fn likelihood(&self, word_length: u32, char_pos: (char, u32)) -> f32 {
+    self
+      .frequencies
+      .get(&word_length)
+      .map(|(char_map, words)| {
+        char_map.get(&char_pos).cloned().unwrap_or(0) as f32 / words.len() as f32
+      })
+      .unwrap_or(0f32)
   }
 }
 
@@ -270,28 +320,30 @@ impl XWord {
     })
   }
 
+  fn clue_letter_positions<'a>(
+    &self,
+    clue_pos: &'a XWordCluePosition,
+    length: u32,
+  ) -> impl Iterator<Item = Pos> + 'a {
+    (0..length as i32).map(move |idx| {
+      clue_pos.pos
+        + if clue_pos.clue_number.is_row {
+          Diff { x: idx, y: 0 }
+        } else {
+          Diff { x: 0, y: idx }
+        }
+    })
+  }
+
   fn word_letter_positions<'a>(
     &self,
-    word: &'a str,
     clue_pos: &'a XWordCluePosition,
+    word: &'a str,
   ) -> impl Iterator<Item = (char, Pos)> + 'a {
-    word.chars().enumerate().map(move |(idx, c)| {
-      (
-        c,
-        clue_pos.pos
-          + if clue_pos.clue_number.is_row {
-            Diff {
-              x: idx as i32,
-              y: 0,
-            }
-          } else {
-            Diff {
-              x: 0,
-              y: idx as i32,
-            }
-          },
-      )
-    })
+    let word_len = word.chars().count() as u32;
+    word
+      .chars()
+      .zip(self.clue_letter_positions(&clue_pos, word_len))
   }
 
   fn build_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
@@ -337,69 +389,177 @@ impl XWord {
       )
   }
 
-  fn build_entry_map(&self) -> HashMap<u32, Vec<XWordCluePosition>> {
-    let entry_map: HashMap<_, Vec<_>> = self.iterate_row_clues().fold(
-      HashMap::new(),
-      |mut entry_map,
-       XWordEntry {
-         number,
-         pos,
-         length,
-       }| {
-        let clue_assignment = XWordCluePosition {
-          pos,
-          clue_number: XWordClueNumber {
-            number,
-            is_row: true,
-          },
-        };
-        match entry_map.entry(length) {
-          Entry::Occupied(mut entry) => {
-            entry.get_mut().push(clue_assignment);
-          }
-          Entry::Vacant(entry) => {
-            entry.insert(vec![clue_assignment]);
-          }
-        }
-        entry_map
-      },
-    );
+  /// Returns an iterator over all locations for clues in the board, and the
+  /// length of words in that position.
+  fn iter_board_entries(&self) -> impl Iterator<Item = (XWordCluePosition, u32)> + '_ {
+    self
+      .iterate_row_clues()
+      .map(
+        |XWordEntry {
+           number,
+           pos,
+           length,
+         }| {
+          (
+            XWordCluePosition {
+              pos,
+              clue_number: XWordClueNumber {
+                number,
+                is_row: true,
+              },
+            },
+            length,
+          )
+        },
+      )
+      .chain(self.iterate_col_clues().map(
+        |XWordEntry {
+           number,
+           pos,
+           length,
+         }| {
+          (
+            XWordCluePosition {
+              pos,
+              clue_number: XWordClueNumber {
+                number,
+                is_row: false,
+              },
+            },
+            length,
+          )
+        },
+      ))
+  }
 
-    let entry_map = self.iterate_col_clues().fold(
-      entry_map,
-      |mut entry_map,
-       XWordEntry {
-         number,
-         pos,
-         length,
-       }| {
-        let clue_assignment = XWordCluePosition {
-          pos,
-          clue_number: XWordClueNumber {
-            number,
-            is_row: false,
-          },
-        };
-        match entry_map.entry(length) {
-          Entry::Occupied(mut entry) => {
-            entry.get_mut().push(clue_assignment);
-          }
-          Entry::Vacant(entry) => {
-            entry.insert(vec![clue_assignment]);
-          }
-        }
-        entry_map
-      },
-    );
+  fn letter_likelihood_score(
+    &self,
+    letter: char,
+    pos: Pos,
+    is_row: bool,
+    frequency_map: &LetterFrequencyMap,
+  ) -> f32 {
+    let diff = if is_row {
+      Diff { x: 1, y: 0 }
+    } else {
+      Diff { x: 0, y: 1 }
+    };
+    let letter_idx = (1..)
+      .take_while(|&delta| {
+        self
+          .board
+          .get(pos - delta * diff)
+          .is_some_and(|&empty| empty)
+      })
+      .count() as u32;
+    let word_length = letter_idx
+      + 1
+      + (1..)
+        .take_while(|&delta| {
+          self
+            .board
+            .get(pos + delta * diff)
+            .is_some_and(|&empty| empty)
+        })
+        .count() as u32;
 
-    entry_map
+    frequency_map.likelihood(word_length, (letter, letter_idx))
+  }
+
+  fn word_likelihood_score(
+    &self,
+    word: &str,
+    clue_pos: &XWordCluePosition,
+    frequency_map: &LetterFrequencyMap,
+  ) -> f32 {
+    self
+      .word_letter_positions(clue_pos, word)
+      .map(|(letter, pos)| {
+        self.letter_likelihood_score(letter, pos, !clue_pos.clue_number.is_row, frequency_map)
+      })
+      .product()
   }
 
   fn build_word_assignments(
     &self,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
-    let entry_map = self.build_entry_map();
-    let mut rng = rand::rng();
+    let frequency_map = LetterFrequencyMap::from_words(
+      self
+        .required_words
+        .values()
+        .chain(self.bank.values())
+        .into(),
+    );
+
+    let build_word_constraints = |id: u32, clue_instance_id: u32, is_required: bool| {
+      let word_constraint = if is_required {
+        Constraint::Primary(XWordConstraint::Clue { id })
+      } else {
+        let constraint = Constraint::Secondary(ColorItem::new(
+          XWordConstraint::Clue { id },
+          clue_instance_id,
+        ));
+        clue_instance_id += 1;
+        constraint
+      };
+
+      let mut constraints = vec![word_constraint];
+      constraints.extend(self.word_letter_positions(clue_pos, word).map(|(c, pos)| {
+        Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
+      }));
+
+      (
+        XWordClueAssignment {
+          id,
+          clue_pos: clue_pos.clone(),
+        },
+        constraints,
+      )
+    };
+
+    // All constraints are grouped by board entry, and within each category
+    // sorted by a "fitness" score of the clue in that position.
+    let constraints = self.iter_board_entries().flat_map(|(clue_pos, length)| {
+      let clue_pos_constraint =
+        Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
+
+      frequency_map
+        .words_with_length(length)
+        .map(|word| {
+          let word_constraint = if is_required {
+            Constraint::Primary(XWordConstraint::Clue { id })
+          } else {
+            let constraint = Constraint::Secondary(ColorItem::new(
+              XWordConstraint::Clue { id },
+              clue_instance_id,
+            ));
+            clue_instance_id += 1;
+            constraint
+          };
+
+          let mut constraints = vec![word_constraint];
+          constraints.extend(self.word_letter_positions(clue_pos, word).map(|(c, pos)| {
+            Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
+          }));
+
+          (
+            XWordClueAssignment {
+              id,
+              clue_pos: clue_pos.clone(),
+            },
+            constraints,
+          );
+
+          (
+            clue_pos_constraint.clone(),
+            self.word_likelihood_score(word, &clue_pos, &frequency_map),
+          )
+        })
+        .sorted_unstable_by(|(_, score1), (_, score2)| {
+          score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
+        })
+        .map(|(constraints, _)| constraints)
+    });
 
     let mut build_word_assignments = move |id: u32, word: &str, is_required: bool| -> Vec<_> {
       let word_len = word.chars().count() as u32;
@@ -424,11 +584,8 @@ impl XWord {
               constraint
             };
 
-            let mut constraints = vec![
-              Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone())),
-              word_constraint,
-            ];
-            constraints.extend(self.word_letter_positions(word, clue_pos).map(|(c, pos)| {
+            let mut constraints = vec![word_constraint];
+            constraints.extend(self.word_letter_positions(clue_pos, word).map(|(c, pos)| {
               Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
             }));
 
@@ -474,7 +631,7 @@ impl XWord {
         .get(&id)
         .or_else(|| self.bank.get(&id))
         .ok_or_else(|| TermgameError::Internal(format!("Unknown word id {id}")))?;
-      for (c, tile_pos) in self.word_letter_positions(word, &clue_pos) {
+      for (c, tile_pos) in self.word_letter_positions(&clue_pos, word) {
         let tile = answer_grid.get_mut(tile_pos).ok_or_else(|| {
           TermgameError::Internal(format!("Position {tile_pos} is out of bounds"))
         })?;

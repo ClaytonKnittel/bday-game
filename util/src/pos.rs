@@ -1,6 +1,6 @@
 use std::{
   fmt::Display,
-  ops::{Add, Sub},
+  ops::{Add, Mul, Neg, Sub},
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -27,6 +27,17 @@ impl Sub for Pos {
 
   fn sub(self, rhs: Self) -> Diff {
     Diff {
+      x: self.x - rhs.x,
+      y: self.y - rhs.y,
+    }
+  }
+}
+
+impl Sub<Diff> for Pos {
+  type Output = Self;
+
+  fn sub(self, rhs: Diff) -> Self {
+    Self {
       x: self.x - rhs.x,
       y: self.y - rhs.y,
     }
@@ -63,6 +74,39 @@ impl Add for Diff {
     Self {
       x: self.x + rhs.x,
       y: self.y + rhs.y,
+    }
+  }
+}
+
+impl Mul<Diff> for i32 {
+  type Output = Diff;
+
+  fn mul(self, rhs: Diff) -> Diff {
+    Diff {
+      x: self * rhs.x,
+      y: self * rhs.y,
+    }
+  }
+}
+
+impl Mul<i32> for Diff {
+  type Output = Diff;
+
+  fn mul(self, rhs: i32) -> Self {
+    Self {
+      x: self.x * rhs,
+      y: self.y * rhs,
+    }
+  }
+}
+
+impl Neg for Diff {
+  type Output = Diff;
+
+  fn neg(self) -> Self::Output {
+    Self {
+      x: -self.x,
+      y: -self.y,
     }
   }
 }
