@@ -16,12 +16,7 @@ use interactive_grid::InteractiveGrid;
 use itertools::Itertools;
 use pc::Pc;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
-use util::{
-  bitcode,
-  error::{TermgameError, TermgameResult},
-  grid::Grid,
-  pos::Pos,
-};
+use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_gen::{
   dlx::DlxIteratorWithNames,
   xword::{XWord, XWordTile},
@@ -68,15 +63,9 @@ fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
 }
 
 fn build_dict() -> TermgameResult<HashSet<String>> {
-  let dict = read_dict("xword_gen/clues.txt")?;
-
-  let total: u64 = dict.iter().map(|(_, &freq)| freq as u64).sum();
-  println!("Total: {total}, size {}", dict.len());
-
   Ok(
-    dict
-      .iter()
-      .map(|(str, &freq)| (str.to_owned(), freq))
+    read_dict("xword_gen/clues.txt")?
+      .into_iter()
       .sorted_by_key(|&(_, freq)| !freq)
       .take(120000)
       .map(|(str, _)| str)
