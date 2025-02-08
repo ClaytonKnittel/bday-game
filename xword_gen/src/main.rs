@@ -157,11 +157,11 @@ fn main() -> TermgameResult {
   }
 
   const REQUIRED: [&str; 2] = ["clayton", "eugenia"];
-  // const REQUIRED: [&str; 24] = [
+  // #[rustfmt::skip]
+  // const REQUIRED: [&str; 25] = [
   //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
   //   "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-  //   "cooper", "jessica", "kathy", "laney", "sruthi",
-  //   // "christina",
+  //   "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
   // ];
 
   // let xword = XWord::from_layout(
