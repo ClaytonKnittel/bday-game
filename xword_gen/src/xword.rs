@@ -7,7 +7,7 @@ use util::{
   pos::{Diff, Pos},
 };
 
-use dlx::{ColorItem, Constraint, Dlx, HeaderType};
+use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct XWordClueNumber {
@@ -469,7 +469,8 @@ impl XWord {
     let mut dlx = Dlx::new(constraints, word_assignments);
     let answer_grid = self.build_grid_from_assignments(
       dlx
-        .find_solution_names()
+        .find_solutions()
+        .with_names()
         .next()
         .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
     )?;
