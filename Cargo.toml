@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.28", features = ["derive"] }
 itertools = "0.14.0"
+serde = { version = "1.0.217", features = ["derive"] }
 termgame = { path = "./termgame" }
 util = { path = "./util" }
 xword_gen = { path = "./xword_gen" }

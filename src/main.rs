@@ -7,14 +7,16 @@ mod pc;
 use std::{
   collections::{hash_map::Entry, HashMap, HashSet},
   fs::{self, File},
-  io::{BufRead, BufReader},
+  io::{BufRead, BufReader, Write},
   process::ExitCode,
 };
 
+use clap::{Parser, ValueEnum};
 use crossword::Crossword;
 use interactive_grid::InteractiveGrid;
 use itertools::Itertools;
 use pc::Pc;
+use serde::{Deserialize, Serialize};
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_gen::{
@@ -23,6 +25,20 @@ use xword_gen::{
 };
 
 const GRID_PATH: &str = "./grid.bin";
+
+#[derive(ValueEnum, Clone, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum RunMode {
+  InteractiveGrid,
+  Progress,
+}
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+  #[arg(long, default_value = "progress")]
+  mode: RunMode,
+}
 
 fn read_grid(path: &str) -> TermgameResult<InteractiveGrid> {
   Ok(InteractiveGrid::from_grid(bitcode::decode(&fs::read(
@@ -77,7 +93,44 @@ fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
 
-fn run() -> TermgameResult {
+#[allow(dead_code)]
+fn interactive_grid() -> TermgameResult {
+  let mut ev = EventLoop::new()?;
+  let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(50, 50));
+  let grid_uid = ev.scene().add_entity(Box::new(grid));
+
+  let pc_uid = ev
+    .scene()
+    .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
+  ev.run_event_loop(|scene, window, _| {
+    let width = window.width() as i32;
+    let height = window.height() as i32;
+
+    let pc: &Pc = scene.entity(pc_uid)?;
+    let grid: &InteractiveGrid = scene.entity(grid_uid)?;
+    let camera_pos = window.camera_pos_mut();
+
+    camera_pos.x = (pc.pos().x - width / 2)
+      .max(0)
+      .min((grid.screen_width()).saturating_sub(width as u32) as i32);
+    camera_pos.y = (pc.pos().y - height / 2)
+      .max(0)
+      .min((grid.screen_height()).saturating_sub(height as u32) as i32);
+
+    Ok(())
+  })?;
+
+  if false {
+    let grid: &InteractiveGrid = ev.scene().entity(grid_uid)?;
+    let grid_serialized = bitcode::encode(grid.grid());
+    let mut file = File::create(GRID_PATH)?;
+    file.write_all(&grid_serialized)?;
+  }
+
+  Ok(())
+}
+
+fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   let grid = mega_grid()?.map(|&is_empty| {
@@ -96,9 +149,6 @@ fn run() -> TermgameResult {
     .with_names()
     .map(|partial_solution| xword_solver.build_grid_from_assignments(partial_solution));
 
-  // let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(50, 50));
-  // let grid_uid = ev.scene().add_entity(Box::new(grid));
-
   let pc_uid = ev
     .scene()
     .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
@@ -115,7 +165,6 @@ fn run() -> TermgameResult {
     let pc: &Pc = scene.entity(pc_uid)?;
     let xword: &Crossword = scene.entity(xword_uid)?;
 
-    // let grid: &InteractiveGrid = scene.entity(grid_uid)?;
     let camera_pos = window.camera_pos_mut();
 
     camera_pos.x = (pc.pos().x - width / 2)
@@ -128,14 +177,15 @@ fn run() -> TermgameResult {
     Ok(())
   })?;
 
-  // if false {
-  //   let grid: &InteractiveGrid = ev.scene().entity(grid_uid)?;
-  //   let grid_serialized = bitcode::encode(grid.grid());
-  //   let mut file = File::create(GRID_PATH)?;
-  //   file.write_all(&grid_serialized)?;
-  // }
-
   Ok(())
+}
+
+fn run() -> TermgameResult {
+  let args = Args::parse();
+  match args.mode {
+    RunMode::InteractiveGrid => interactive_grid(),
+    RunMode::Progress => show_dlx_iters(),
+  }
 }
 
 fn main() -> ExitCode {
