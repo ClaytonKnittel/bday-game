@@ -98,7 +98,7 @@ fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    // .take(40000)
+    .take(150000)
     .collect();
 
   let xword = XWord::from_grid(grid, words.iter().map(|(str, _)| (*str).clone()))?;
