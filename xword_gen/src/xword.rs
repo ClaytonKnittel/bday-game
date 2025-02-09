@@ -325,6 +325,17 @@ impl XWord {
     clue_pos: &'a XWordCluePosition,
     length: u32,
   ) -> impl Iterator<Item = Pos> + 'a {
+    debug_assert!((0..length as i32).all(|idx| {
+      self.available(
+        clue_pos.pos
+          + if clue_pos.clue_number.is_row {
+            Diff { x: idx, y: 0 }
+          } else {
+            Diff { x: 0, y: idx }
+          },
+      )
+    }));
+
     (0..length as i32).map(move |idx| {
       clue_pos.pos
         + if clue_pos.clue_number.is_row {
@@ -1032,6 +1043,74 @@ mod tests {
     expect_float_eq!(
       xword.letter_likelihood_score('a', Pos { x: 3, y: 0 }, true, &frequency_map),
       0.
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_word_likelihood_score() -> TermgameResult {
+    let xword = XWord::from_layout(
+      "____
+       _X__
+       _XX_
+       X___",
+      [
+        "a", "b", //
+        "cd", "ce", "ee", "gh", //
+        "ijk", "ikl", "jkl", //
+        "zyxw", "zzzz", "yzxy", "xxxx", "wwww", //
+      ]
+      .into_iter()
+      .map(|str| str.to_owned())
+      .collect(),
+    )?;
+
+    let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
+
+    expect_float_eq!(
+      xword.word_likelihood_score(
+        "yab",
+        &XWordCluePosition {
+          pos: Pos { x: 0, y: 0 },
+          clue_number: XWordClueNumber {
+            number: 0,
+            is_row: false,
+          },
+        },
+        &frequency_map,
+      ),
+      (1. / 5.) * (1. / 2.) * (1. / 2.)
+    );
+
+    expect_float_eq!(
+      xword.word_likelihood_score(
+        "weal",
+        &XWordCluePosition {
+          pos: Pos { x: 3, y: 0 },
+          clue_number: XWordClueNumber {
+            number: 3,
+            is_row: false,
+          },
+        },
+        &frequency_map,
+      ),
+      (2. / 5.) * (2. / 4.) * (1. / 2.) * (2. / 3.)
+    );
+
+    expect_float_eq!(
+      xword.word_likelihood_score(
+        "ey",
+        &XWordCluePosition {
+          pos: Pos { x: 2, y: 1 },
+          clue_number: XWordClueNumber {
+            number: 2,
+            is_row: true,
+          },
+        },
+        &frequency_map,
+      ),
+      (2. / 4.) * (1. / 5.)
     );
 
     Ok(())
