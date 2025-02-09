@@ -96,9 +96,10 @@ impl Display for XWordTile {
   }
 }
 
+type LetterFrequencyMapEntry<'a> = (HashMap<(char, u32), u32>, HashSet<&'a str>);
 struct LetterFrequencyMap<'a> {
   /// Map from word_length -> ((letter, index) -> count, (set of words))
-  frequencies: HashMap<u32, (HashMap<(char, u32), u32>, HashSet<&'a str>)>,
+  frequencies: HashMap<u32, LetterFrequencyMapEntry<'a>>,
 }
 
 impl<'a> LetterFrequencyMap<'a> {
@@ -163,8 +164,14 @@ impl XWord {
       .enumerate()
       .map(|(id, word)| (id as u32, word))
       .collect();
+
+    let required_words_set: HashSet<_> = required_words
+      .values()
+      .map(|word| word.to_owned())
+      .collect();
     let bank = bank
       .into_iter()
+      .filter(|word| !required_words_set.contains(word))
       .enumerate()
       .map(|(id, word)| ((id + required_words.len()) as u32, word))
       .collect();
@@ -1350,6 +1357,42 @@ mod tests {
          X_",
       )?,
       ["a", "c", "ab", "bc"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve();
+    assert_that!(solution, ok(anything()));
+    let solution = solution.unwrap();
+    expect_that!(
+      solution.get(Pos { x: 0, y: 0 }).cloned(),
+      some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
+    );
+    expect_that!(
+      solution.get(Pos { x: 1, y: 0 }).cloned(),
+      some(eq(&XWordTile::Letter('b')))
+    );
+    expect_that!(
+      solution.get(Pos { x: 0, y: 1 }).cloned(),
+      some(eq(&XWordTile::Wall))
+    );
+    expect_that!(
+      solution.get(Pos { x: 1, y: 1 }).cloned(),
+      some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_small_dict_required() -> TermgameResult {
+    let xword = XWord::from_grid_with_required(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab"].into_iter().map(|str| str.to_owned()),
+      ["a", "c", "e", "cd", "de", "ab", "bc"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve();

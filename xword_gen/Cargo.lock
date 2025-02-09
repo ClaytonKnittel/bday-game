@@ -74,7 +74,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "dlx"
 version = "0.1.0"
-source = "git+https://github.com/ClaytonKnittel/dlx-rs.git?rev=86f33e69023f978cca621dcde87164641d7cd341#86f33e69023f978cca621dcde87164641d7cd341"
+source = "git+https://github.com/ClaytonKnittel/dlx-rs.git?rev=89549e42f64d2d6055ead07facf99edea80215be#89549e42f64d2d6055ead07facf99edea80215be"
 dependencies = [
  "googletest",
 ]
