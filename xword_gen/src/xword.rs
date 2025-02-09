@@ -1,6 +1,6 @@
 use std::{
   cmp::Ordering,
-  collections::{hash_map::Entry, HashMap, HashSet},
+  collections::{HashMap, HashSet},
   fmt::Display,
   iter,
 };
@@ -909,6 +909,81 @@ mod tests {
       unordered_elements_are![&"ab", &"ac", &"cc"]
     );
     expect_that!(map.words_with_length(3).collect::<Vec<_>>(), empty());
+  }
+
+  #[gtest]
+  fn test_letter_likelihood_score() -> TermgameResult {
+    let xword = XWord::from_layout(
+      "____
+       _X__
+       _XX_
+       XXX_",
+      [
+        "a", "b", //
+        "cd", "ce", "ef", "gh", //
+        "ijk", "ikl", "jkl", //
+        "zyxw", "zzzz", "yzxy", "xxxx", "wwww", //
+      ]
+      .into_iter()
+      .map(|str| str.to_owned())
+      .collect(),
+    )?;
+
+    let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
+
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 1, y: 0 }, false, &frequency_map),
+      1. / 2.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('b', Pos { x: 1, y: 0 }, false, &frequency_map),
+      1. / 2.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('c', Pos { x: 1, y: 0 }, false, &frequency_map),
+      0.
+    );
+
+    expect_float_eq!(
+      xword.letter_likelihood_score('c', Pos { x: 2, y: 0 }, false, &frequency_map),
+      2. / 4.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('e', Pos { x: 2, y: 0 }, false, &frequency_map),
+      1. / 4.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('h', Pos { x: 2, y: 0 }, false, &frequency_map),
+      0.
+    );
+
+    expect_float_eq!(
+      xword.letter_likelihood_score('i', Pos { x: 0, y: 0 }, false, &frequency_map),
+      2. / 3.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('j', Pos { x: 0, y: 0 }, false, &frequency_map),
+      1. / 3.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('k', Pos { x: 0, y: 0 }, false, &frequency_map),
+      0.
+    );
+
+    expect_float_eq!(
+      xword.letter_likelihood_score('z', Pos { x: 3, y: 0 }, false, &frequency_map),
+      2. / 5.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('y', Pos { x: 3, y: 0 }, false, &frequency_map),
+      1. / 5.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 3, y: 0 }, false, &frequency_map),
+      0.
+    );
+
+    Ok(())
   }
 
   // #[gtest]
