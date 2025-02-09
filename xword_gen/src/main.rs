@@ -1,46 +1,38 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::{
-  collections::{hash_map::Entry, HashMap},
   fs::{self, File},
   io::{BufRead, BufReader, Write},
 };
 
 use dlx::DlxIteratorWithNames;
-use itertools::Itertools;
 use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
+use xword_dict::XWordDict;
 use xword_gen::xword::XWord;
 
-fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
-  let mut result = HashMap::new();
-  let reader = BufReader::new(File::open(path)?);
-  for line in reader.lines() {
-    let line = line?;
-    let items: Vec<_> = line.split('\t').collect();
-    if items.len() != 4 {
-      continue;
-    }
+const DICT_PATH: &str = "./dict.bin";
 
-    let answer = items[2];
-    // let clue = items[3];
+fn build_and_save_dict_from_xd(xd_path: &str) -> TermgameResult {
+  let dict = XWordDict::parse_xd_file(
+    BufReader::new(File::open(xd_path)?)
+      .lines()
+      .skip(1)
+      .collect::<Result<Vec<_>, _>>()?,
+  )?;
 
-    let answer_len = answer.chars().count();
-    if answer_len <= 2
-      || !answer.chars().all(|c| c.is_alphabetic())
-      || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
-      || (answer.chars().all_equal() && answer_len > 3)
-    {
-      continue;
-    }
-    match result.entry(answer.to_ascii_lowercase()) {
-      Entry::Occupied(mut entry) => *entry.get_mut() += 1,
-      Entry::Vacant(entry) => {
-        entry.insert(1);
-      }
-    }
-  }
+  let result = bitcode::encode(&dict);
+  let mut file = File::create(DICT_PATH)?;
+  file.write_all(&result)?;
 
-  Ok(result)
+  Ok(())
+}
+
+fn read_dict() -> TermgameResult<XWordDict> {
+  XWordDict::parse_xd_file(
+    BufReader::new(File::open(DICT_PATH)?)
+      .lines()
+      .collect::<Result<Vec<_>, _>>()?,
+  )
 }
 
 const fn saturday() -> &'static str {
@@ -92,16 +84,9 @@ fn mega() -> TermgameResult<Grid<bool>> {
 }
 
 fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
-  let dict = read_dict("clues.txt")?;
-
-  let words: Vec<_> = dict
-    .iter()
-    .map(|(str, &freq)| (str.to_owned(), freq))
-    .sorted_by_key(|&(_, freq)| !freq)
-    .take(150000)
-    .collect();
-
-  let xword = XWord::from_grid(grid, words.iter().map(|(str, _)| (*str).clone()))?;
+  let dict = read_dict()?;
+  let words: Vec<_> = dict.top_n_words(150000);
+  let xword = XWord::from_grid(grid, words.into_iter().map(|str| str.to_owned()))?;
 
   let (time, solution) = time_fn(|| xword.solve());
   let solution = solution?;
@@ -117,64 +102,9 @@ fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
 }
 
 fn show_steps() -> TermgameResult {
-  let dict = read_dict("clues.txt")?;
+  let dict = read_dict()?;
 
-  let total: u64 = dict.iter().map(|(_, &freq)| freq as u64).sum();
-  println!("Total: {total}, size {}", dict.len());
-
-  let words: Vec<_> = dict
-    .iter()
-    .map(|(str, &freq)| (str.to_owned(), freq))
-    .sorted_by_key(|&(_, freq)| !freq)
-    .take(120000)
-    // .chain(
-    //   [
-    //     "ingoodconscience",
-    //     "icecreamheadache",
-    //     "areyouamanoramouse",
-    //     "jerusalemartichoke",
-    //     "comingoutparty",
-    //     "iminbigtrouble",
-    //     "waterbuffalo",
-    //     "socialsecurity",
-    //     "opentoquestion",
-    //     "beammeupscotty",
-    //     "iwillalwaysloveyou",
-    //     "kissingandmakingup",
-    //     "aturnfortheworse",
-    //     "detectivestories",
-    //     "beverlyhills",
-    //     "imonyourside",
-    //     "onceinawhile",
-    //     "statetrooper",
-    //     "cruxoftheissue",
-    //     "genetherapy",
-    //     "thesmithsonian",
-    //     "comedownthepike",
-    //   ]
-    //   .into_iter()
-    //   .map(|s| (s.to_owned(), 1)),
-    // )
-    // .chain((3..=15).map(|len| (once('a').cycle().take(len).collect(), 1)))
-    .collect();
-  for (word, freq) in words.iter().take(5) {
-    println!("{word} occurs {freq} times");
-  }
-
-  // let mut hist = HashMap::<usize, u32>::new();
-  // for (word, _) in words.iter() {
-  //   match hist.entry(word.chars().count()) {
-  //     Entry::Occupied(mut entry) => *entry.get_mut() += 1,
-  //     Entry::Vacant(entry) => {
-  //       entry.insert(1);
-  //     }
-  //   }
-  // }
-  // for size in 0..1000 {
-  //   if let Some(cnt) = hist.get(&size) {
-  //     println!("{size}: {cnt}");
-  //   }
-  // }
+  let words = dict.top_n_words(120000);
 
   // const REQUIRED: [&str; 2] = ["clayton", "eugenia"];
   // #[rustfmt::skip]
@@ -188,7 +118,7 @@ fn show_steps() -> TermgameResult {
     // mega()?,
     XWord::build_grid(saturday())?,
     // REQUIRED.map(|s| s.to_owned()),
-    words.iter().map(|(str, _)| (*str).clone()),
+    words.iter().map(|&str| str.to_owned()),
   )?;
 
   let mut dlx = xword.build_dlx();
@@ -214,8 +144,10 @@ fn show_steps() -> TermgameResult {
 }
 
 fn main() -> TermgameResult {
-  if true {
+  if false {
     find_and_save_solution(mega()?)
+  } else if true {
+    build_and_save_dict_from_xd("./clues.txt")
   } else {
     show_steps()
   }

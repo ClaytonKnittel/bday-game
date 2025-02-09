@@ -576,6 +576,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xword_dict"
+version = "0.1.0"
+dependencies = [
+ "bitcode",
+ "itertools",
+ "util",
+]
+
+[[package]]
 name = "xword_gen"
 version = "0.1.0"
 dependencies = [
@@ -585,6 +594,7 @@ dependencies = [
  "itertools",
  "rand",
  "util",
+ "xword_dict",
 ]
 
 [[package]]

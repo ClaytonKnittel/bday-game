@@ -3,6 +3,7 @@
         "./Cargo.toml",
         "termgame/Cargo.toml",
         "util/Cargo.toml",
+        "xword_dict/Cargo.toml",
         "xword_gen/Cargo.toml",
     ],
     "rust-analyzer.check.command": "clippy",
