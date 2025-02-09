@@ -16,7 +16,7 @@ use crossword::Crossword;
 use interactive_grid::InteractiveGrid;
 use itertools::Itertools;
 use pc::Pc;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_gen::{
@@ -89,6 +89,24 @@ fn build_dict() -> TermgameResult<HashSet<String>> {
   )
 }
 
+const fn saturday() -> &'static str {
+  "________XX_____
+   _________X_____
+   _________X_____
+   _____XX____X___
+   ____X_____X____
+   ___X____X______
+   X______________
+   XXX____X____XXX
+   ______________X
+   ______X____X___
+   ____X_____X____
+   ___X____XX_____
+   _____X_________
+   _____X_________
+   _____XX________"
+}
+
 fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
@@ -133,7 +151,9 @@ fn interactive_grid() -> TermgameResult {
 fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let grid = mega_grid()?.map(|&is_empty| {
+  let orig_grid = XWord::build_grid(saturday())?;
+  // let orig_grid = mega_grid()?;
+  let grid = orig_grid.map(|&is_empty| {
     if is_empty {
       XWordTile::Empty
     } else {
@@ -142,7 +162,7 @@ fn show_dlx_iters() -> TermgameResult {
   });
   let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
 
-  let xword_solver = XWord::from_grid(mega_grid()?, build_dict()?)?;
+  let xword_solver = XWord::from_grid(orig_grid, build_dict()?)?;
   let mut dlx = xword_solver.build_dlx();
   let mut x_iter = dlx
     .find_solutions_stepwise()

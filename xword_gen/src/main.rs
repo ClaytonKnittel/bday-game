@@ -141,22 +141,22 @@ fn main() -> TermgameResult {
     println!("{word} occurs {freq} times");
   }
 
-  let mut hist = HashMap::<usize, u32>::new();
-  for (word, _) in words.iter() {
-    match hist.entry(word.chars().count()) {
-      Entry::Occupied(mut entry) => *entry.get_mut() += 1,
-      Entry::Vacant(entry) => {
-        entry.insert(1);
-      }
-    }
-  }
-  for size in 0..1000 {
-    if let Some(cnt) = hist.get(&size) {
-      println!("{size}: {cnt}");
-    }
-  }
+  // let mut hist = HashMap::<usize, u32>::new();
+  // for (word, _) in words.iter() {
+  //   match hist.entry(word.chars().count()) {
+  //     Entry::Occupied(mut entry) => *entry.get_mut() += 1,
+  //     Entry::Vacant(entry) => {
+  //       entry.insert(1);
+  //     }
+  //   }
+  // }
+  // for size in 0..1000 {
+  //   if let Some(cnt) = hist.get(&size) {
+  //     println!("{size}: {cnt}");
+  //   }
+  // }
 
-  const REQUIRED: [&str; 2] = ["clayton", "eugenia"];
+  // const REQUIRED: [&str; 2] = ["clayton", "eugenia"];
   // #[rustfmt::skip]
   // const REQUIRED: [&str; 25] = [
   //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
@@ -164,13 +164,9 @@ fn main() -> TermgameResult {
   //   "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
   // ];
 
-  // let xword = XWord::from_layout(
-  //   saturday(),
-  //   // REQUIRED.map(|s| s.to_owned()),
-  //   words.iter().map(|(str, _)| (*str).clone()),
-  // )?;
   let xword = XWord::from_grid(
-    mega()?,
+    // mega()?,
+    XWord::build_grid(saturday())?,
     // REQUIRED.map(|s| s.to_owned()),
     words.iter().map(|(str, _)| (*str).clone()),
   )?;
@@ -188,8 +184,7 @@ fn main() -> TermgameResult {
       })
     })
     .flatten()
-    .skip(60)
-    .take(60)
+  // .step_by(5)
   {
     println!("{}", xword.build_grid_from_assignments(farthest_vec)?);
   }

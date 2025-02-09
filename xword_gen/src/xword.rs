@@ -182,11 +182,7 @@ impl XWord {
     Self::from_grid_with_required(board, iter::empty(), bank)
   }
 
-  pub fn from_layout_with_required(
-    board: &str,
-    required_words: HashSet<String>,
-    bank: HashSet<String>,
-  ) -> TermgameResult<Self> {
+  pub fn build_grid(board: &str) -> TermgameResult<Grid<bool>> {
     let (width, height, board) = board.lines().try_fold(
       (None, 0, vec![]),
       |(width, height, mut board), line| -> TermgameResult<_> {
@@ -218,13 +214,7 @@ impl XWord {
     )?;
 
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
-    let board = Grid::from_vec(board, width, height as u32)?;
-
-    Self::from_grid_with_required(board, required_words, bank)
-  }
-
-  pub fn from_layout(board: &str, bank: HashSet<String>) -> TermgameResult<Self> {
-    Self::from_layout_with_required(board, HashSet::new(), bank)
+    Grid::from_vec(board, width, height as u32)
   }
 
   #[cfg(test)]
@@ -643,36 +633,38 @@ mod tests {
 
   #[gtest]
   fn test_empty() {
-    let xword = XWord::from_layout("", HashSet::new());
-    expect_that!(xword, err(anything()));
+    let grid = XWord::build_grid("");
+    expect_that!(grid, err(anything()));
   }
 
   #[gtest]
-  fn test_available() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
+  fn test_available() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
       HashSet::new(),
-    );
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
     expect_true!(xword.available(Pos { x: 0, y: 0 }));
     expect_true!(xword.available(Pos { x: 1, y: 0 }));
     expect_false!(xword.available(Pos { x: 0, y: 1 }));
     expect_true!(xword.available(Pos { x: 1, y: 1 }));
+
+    Ok(())
   }
 
   #[gtest]
-  fn test_iterate_rows() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
+  fn test_iterate_rows() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
       HashSet::new(),
-    );
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
     expect_that!(
       xword
         .iterate_row_clues()
@@ -694,18 +686,20 @@ mod tests {
         .collect::<Vec<_>>(),
       container_eq([Pos::zero(), Pos { x: 1, y: 1 }])
     );
+
+    Ok(())
   }
 
   #[gtest]
-  fn test_iterate_cols() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
+  fn test_iterate_cols() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
       HashSet::new(),
-    );
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
     expect_that!(
       xword
         .iterate_col_clues()
@@ -727,18 +721,20 @@ mod tests {
         .collect::<Vec<_>>(),
       container_eq([Pos::zero(), Pos { x: 1, y: 0 }])
     );
+
+    Ok(())
   }
 
   #[gtest]
-  fn test_constraints() {
-    let xword = XWord::from_layout(
-      "__
+  fn test_constraints() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
        X_",
-      ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
-    );
+      )?,
+      ["ab", "bc"].into_iter().map(|str| str.to_owned()),
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
     let constraints: Vec<_> = xword.build_constraints().collect();
     expect_that!(
       constraints,
@@ -793,13 +789,17 @@ mod tests {
         &(XWordConstraint::Clue { id: 1 }, HeaderType::Secondary),
       ]
     );
+
+    Ok(())
   }
 
   #[gtest]
   fn test_iter_board_entries() -> TermgameResult {
-    let xword = XWord::from_layout(
-      "____
-       _X__",
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "____
+         _X__",
+      )?,
       HashSet::new(),
     )?;
 
@@ -924,11 +924,13 @@ mod tests {
 
   #[gtest]
   fn test_letter_likelihood_score() -> TermgameResult {
-    let xword = XWord::from_layout(
-      "____
-       _X__
-       _XX_
-       XXX_",
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "____
+         _X__
+         _XX_
+         XXX_",
+      )?,
       [
         "a", "b", //
         "cd", "ce", "ee", "gh", //
@@ -936,8 +938,7 @@ mod tests {
         "zyxw", "zzzz", "yzxy", "xxxx", "wwww", //
       ]
       .into_iter()
-      .map(|str| str.to_owned())
-      .collect(),
+      .map(|str| str.to_owned()),
     )?;
 
     let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
@@ -1050,11 +1051,13 @@ mod tests {
 
   #[gtest]
   fn test_word_likelihood_score() -> TermgameResult {
-    let xword = XWord::from_layout(
-      "____
-       _X__
-       _XX_
-       X___",
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "____
+         _X__
+         _XX_
+         X___",
+      )?,
       [
         "a", "b", //
         "cd", "ce", "ee", "gh", //
@@ -1062,8 +1065,7 @@ mod tests {
         "zyxw", "zzzz", "yzxy", "xxxx", "wwww", //
       ]
       .into_iter()
-      .map(|str| str.to_owned())
-      .collect(),
+      .map(|str| str.to_owned()),
     )?;
 
     let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
@@ -1173,15 +1175,14 @@ mod tests {
   // }
 
   #[gtest]
-  fn test_word_assignments() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
-      ["ab", "c"].into_iter().map(|str| str.to_owned()).collect(),
-    );
-
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
+  fn test_word_assignments() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab", "c"].into_iter().map(|str| str.to_owned()),
+    )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let c_id = xword.testonly_word_id("c").expect("word c not found");
@@ -1300,21 +1301,19 @@ mod tests {
         ),
       ]
     );
+
+    Ok(())
   }
 
   #[gtest]
-  fn test_word_assignments_order() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
-      ["ab", "ca", "c"]
-        .into_iter()
-        .map(|str| str.to_owned())
-        .collect(),
-    );
-
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
+  fn test_word_assignments_order() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab", "ca", "c"].into_iter().map(|str| str.to_owned()),
+    )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let ca_id = xword.testonly_word_id("ca").expect("word ca not found");
@@ -1394,21 +1393,20 @@ mod tests {
         ],
       ]
     );
+
+    Ok(())
   }
 
   #[gtest]
-  fn test_small_dict() {
-    let xword = XWord::from_layout(
-      "__
-       X_",
-      ["a", "c", "ab", "bc"]
-        .into_iter()
-        .map(|str| str.to_owned())
-        .collect(),
-    );
+  fn test_small_dict() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["a", "c", "ab", "bc"].into_iter().map(|str| str.to_owned()),
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
     let solution = xword.solve();
     assert_that!(solution, ok(anything()));
     let solution = solution.unwrap();
@@ -1428,26 +1426,27 @@ mod tests {
       solution.get(Pos { x: 1, y: 1 }).cloned(),
       some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
     );
+
+    Ok(())
   }
 
   #[gtest]
-  fn test_mini() {
-    let xword = XWord::from_layout(
-      "X___X
-       _____
-       _____
-       _____
-       _____",
+  fn test_mini() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "X___X
+         _____
+         _____
+         _____
+         _____",
+      )?,
       [
         "hug", "korea", "isbns", "snark", "sines", "kiss", "hosni", "urban", "genre", "asks",
       ]
       .into_iter()
-      .map(|str| str.to_owned())
-      .collect(),
-    );
+      .map(|str| str.to_owned()),
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
     let solution = xword.solve();
     assert_that!(solution, ok(anything()));
     let solution = solution.unwrap();
@@ -1465,5 +1464,7 @@ mod tests {
       ], 5, 5,
     ).unwrap();
     expect_eq!(solution, expected_solution);
+
+    Ok(())
   }
 }
