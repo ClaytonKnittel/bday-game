@@ -618,6 +618,7 @@ mod tests {
   use dlx::{ColorItem, Constraint, HeaderType};
   use googletest::prelude::*;
   use util::{
+    error::TermgameResult,
     grid::{Grid, Gridlike},
     pos::Pos,
   };
@@ -783,60 +784,147 @@ mod tests {
   }
 
   #[gtest]
-  fn test_entry_map() {
+  fn test_iter_board_entries() -> TermgameResult {
     let xword = XWord::from_layout(
-      "__
-       X_",
-      ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
-    );
+      "____
+       _X__",
+      HashSet::new(),
+    )?;
 
-    assert_that!(xword, ok(anything()));
-    let xword = xword.unwrap();
-    let entry_map = xword.build_entry_map();
     expect_that!(
-      entry_map,
+      xword.iter_board_entries().collect::<Vec<_>>(),
       unordered_elements_are![
-        (
-          /*length=*/ &1,
-          &vec![
-            XWordCluePosition {
-              pos: Pos { x: 1, y: 1 },
-              clue_number: XWordClueNumber {
-                number: 1,
-                is_row: true
-              }
-            },
-            XWordCluePosition {
-              pos: Pos::zero(),
-              clue_number: XWordClueNumber {
-                number: 0,
-                is_row: false
-              }
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 0, y: 0 },
+            clue_number: XWordClueNumber {
+              number: 0,
+              is_row: true
             }
-          ]
+          },
+          4
         ),
-        (
-          /*length=*/ &2,
-          &vec![
-            XWordCluePosition {
-              pos: Pos::zero(),
-              clue_number: XWordClueNumber {
-                number: 0,
-                is_row: true
-              }
-            },
-            XWordCluePosition {
-              pos: Pos { x: 1, y: 0 },
-              clue_number: XWordClueNumber {
-                number: 1,
-                is_row: false
-              }
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 0, y: 1 },
+            clue_number: XWordClueNumber {
+              number: 1,
+              is_row: true
             }
-          ]
+          },
+          1
+        ),
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 2, y: 1 },
+            clue_number: XWordClueNumber {
+              number: 2,
+              is_row: true
+            }
+          },
+          2
+        ),
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 0, y: 0 },
+            clue_number: XWordClueNumber {
+              number: 0,
+              is_row: false
+            }
+          },
+          2
+        ),
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 1, y: 0 },
+            clue_number: XWordClueNumber {
+              number: 1,
+              is_row: false
+            }
+          },
+          1
+        ),
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 2, y: 0 },
+            clue_number: XWordClueNumber {
+              number: 2,
+              is_row: false
+            }
+          },
+          2
+        ),
+        &(
+          XWordCluePosition {
+            pos: Pos { x: 3, y: 0 },
+            clue_number: XWordClueNumber {
+              number: 3,
+              is_row: false
+            }
+          },
+          2
         ),
       ]
     );
+
+    Ok(())
   }
+
+  // #[gtest]
+  // fn test_entry_map() {
+  //   let xword = XWord::from_layout(
+  //     "__
+  //      X_",
+  //     ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
+  //   );
+
+  //   assert_that!(xword, ok(anything()));
+  //   let xword = xword.unwrap();
+  //   let entry_map = xword.build_entry_map();
+  //   expect_that!(
+  //     entry_map,
+  //     unordered_elements_are![
+  //       (
+  //         /*length=*/ &1,
+  //         &vec![
+  //           XWordCluePosition {
+  //             pos: Pos { x: 1, y: 1 },
+  //             clue_number: XWordClueNumber {
+  //               number: 1,
+  //               is_row: true
+  //             }
+  //           },
+  //           XWordCluePosition {
+  //             pos: Pos::zero(),
+  //             clue_number: XWordClueNumber {
+  //               number: 0,
+  //               is_row: false
+  //             }
+  //           }
+  //         ]
+  //       ),
+  //       (
+  //         /*length=*/ &2,
+  //         &vec![
+  //           XWordCluePosition {
+  //             pos: Pos::zero(),
+  //             clue_number: XWordClueNumber {
+  //               number: 0,
+  //               is_row: true
+  //             }
+  //           },
+  //           XWordCluePosition {
+  //             pos: Pos { x: 1, y: 0 },
+  //             clue_number: XWordClueNumber {
+  //               number: 1,
+  //               is_row: false
+  //             }
+  //           }
+  //         ]
+  //       ),
+  //     ]
+  //   );
+  // }
 
   #[gtest]
   fn test_word_assignments() {
