@@ -98,7 +98,7 @@ fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
     .iter()
     .map(|(str, &freq)| (str.to_owned(), freq))
     .sorted_by_key(|&(_, freq)| !freq)
-    .take(40000)
+    // .take(40000)
     .collect();
 
   let xword = XWord::from_grid(grid, words.iter().map(|(str, _)| (*str).clone()))?;
@@ -215,7 +215,7 @@ fn show_steps() -> TermgameResult {
 
 fn main() -> TermgameResult {
   if true {
-    find_and_save_solution(XWord::build_grid(sunday())?)
+    find_and_save_solution(mega()?)
   } else {
     show_steps()
   }
