@@ -1303,6 +1303,99 @@ mod tests {
   }
 
   #[gtest]
+  fn test_word_assignments_order() {
+    let xword = XWord::from_layout(
+      "__
+       X_",
+      ["ab", "ca", "c"]
+        .into_iter()
+        .map(|str| str.to_owned())
+        .collect(),
+    );
+
+    assert_that!(xword, ok(anything()));
+    let xword = xword.unwrap();
+
+    let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
+    let ca_id = xword.testonly_word_id("ca").expect("word ca not found");
+    let c_id = xword.testonly_word_id("c").expect("word c not found");
+
+    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+
+    let first_row_assignments: Vec<_> = word_assignments
+      .iter()
+      .filter_map(|(XWordClueAssignment { clue_pos, .. }, constraints)| {
+        (clue_pos.pos == Pos { x: 0, y: 0 } && clue_pos.clue_number.is_row).then_some(constraints)
+      })
+      .cloned()
+      .collect();
+
+    type XWordColorItem = ColorItem<XWordConstraint>;
+
+    expect_that!(
+      first_row_assignments,
+      elements_are![
+        elements_are![
+          pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
+            pat!(XWordClueNumber {
+              number: &0,
+              is_row: &true
+            })
+          )))),
+          pat!(Constraint::Secondary(property!(
+            &XWordColorItem.item(),
+            &XWordConstraint::Clue { id: ca_id }
+          ))),
+          pat!(Constraint::Secondary(
+            property!(
+              &XWordColorItem.item(),
+              &XWordConstraint::Tile { pos: Pos::zero() }
+            )
+            .and(property!(&XWordColorItem.color(), 'c' as u32))
+          )),
+          pat!(Constraint::Secondary(
+            property!(
+              &XWordColorItem.item(),
+              &XWordConstraint::Tile {
+                pos: Pos { x: 1, y: 0 }
+              }
+            )
+            .and(property!(&XWordColorItem.color(), 'a' as u32))
+          )),
+        ],
+        elements_are![
+          pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
+            pat!(XWordClueNumber {
+              number: &0,
+              is_row: &true
+            })
+          )))),
+          pat!(Constraint::Secondary(property!(
+            &XWordColorItem.item(),
+            &XWordConstraint::Clue { id: ab_id }
+          ))),
+          pat!(Constraint::Secondary(
+            property!(
+              &XWordColorItem.item(),
+              &XWordConstraint::Tile { pos: Pos::zero() }
+            )
+            .and(property!(&XWordColorItem.color(), 'a' as u32))
+          )),
+          pat!(Constraint::Secondary(
+            property!(
+              &XWordColorItem.item(),
+              &XWordConstraint::Tile {
+                pos: Pos { x: 1, y: 0 }
+              }
+            )
+            .and(property!(&XWordColorItem.color(), 'b' as u32))
+          )),
+        ],
+      ]
+    );
+  }
+
+  #[gtest]
   fn test_small_dict() {
     let xword = XWord::from_layout(
       "__
