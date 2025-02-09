@@ -1318,7 +1318,6 @@ mod tests {
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let ca_id = xword.testonly_word_id("ca").expect("word ca not found");
-    let c_id = xword.testonly_word_id("c").expect("word c not found");
 
     let word_assignments: Vec<_> = xword.build_word_assignments().collect();
 
@@ -1332,6 +1331,8 @@ mod tests {
 
     type XWordColorItem = ColorItem<XWordConstraint>;
 
+    // "ca" should appear before "ab" in the first row, since "ca" is possible
+    // but "ab" is not.
     expect_that!(
       first_row_assignments,
       elements_are![
