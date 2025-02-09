@@ -920,7 +920,7 @@ mod tests {
        XXX_",
       [
         "a", "b", //
-        "cd", "ce", "ef", "gh", //
+        "cd", "ce", "ee", "gh", //
         "ijk", "ikl", "jkl", //
         "zyxw", "zzzz", "yzxy", "xxxx", "wwww", //
       ]
@@ -931,6 +931,7 @@ mod tests {
 
     let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
 
+    // First-position letters in columns across the top row:
     expect_float_eq!(
       xword.letter_likelihood_score('a', Pos { x: 1, y: 0 }, false, &frequency_map),
       1. / 2.
@@ -980,6 +981,56 @@ mod tests {
     );
     expect_float_eq!(
       xword.letter_likelihood_score('a', Pos { x: 3, y: 0 }, false, &frequency_map),
+      0.
+    );
+
+    // First-position letters in rows:
+    expect_float_eq!(
+      xword.letter_likelihood_score('c', Pos { x: 2, y: 1 }, true, &frequency_map),
+      1. / 2.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('z', Pos { x: 0, y: 0 }, true, &frequency_map),
+      2. / 5.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 2, y: 1 }, true, &frequency_map),
+      0.
+    );
+
+    // Middle-position letters in columns:
+    expect_float_eq!(
+      xword.letter_likelihood_score('e', Pos { x: 2, y: 1 }, false, &frequency_map),
+      2. / 4.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('h', Pos { x: 2, y: 1 }, false, &frequency_map),
+      1. / 4.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('x', Pos { x: 3, y: 2 }, false, &frequency_map),
+      3. / 5.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 2, y: 1 }, false, &frequency_map),
+      0.
+    );
+
+    // Middle-position letters in rows:
+    expect_float_eq!(
+      xword.letter_likelihood_score('e', Pos { x: 3, y: 1 }, true, &frequency_map),
+      2. / 4.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('d', Pos { x: 3, y: 1 }, true, &frequency_map),
+      1. / 4.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('w', Pos { x: 3, y: 0 }, true, &frequency_map),
+      2. / 5.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 3, y: 0 }, true, &frequency_map),
       0.
     );
 
