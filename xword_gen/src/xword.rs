@@ -7,6 +7,7 @@ use std::{
 
 use itertools::Itertools;
 use util::{
+  bitcode::{Decode, Encode},
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
@@ -74,7 +75,7 @@ impl XWordWord {
   }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub enum XWordTile {
   Letter(char),
   Empty,

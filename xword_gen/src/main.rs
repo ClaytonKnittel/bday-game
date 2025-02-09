@@ -4,16 +4,11 @@ use std::{
   collections::{hash_map::Entry, HashMap},
   fs::{self, File},
   io::{BufRead, BufReader, Write},
-  iter::once,
 };
 
 use dlx::DlxIteratorWithNames;
 use itertools::Itertools;
-use util::{
-  bitcode,
-  error::{TermgameError, TermgameResult},
-  grid::Grid,
-};
+use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
 use xword_gen::xword::XWord;
 
 fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
@@ -96,7 +91,32 @@ fn mega() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("../grid.bin")?)?)
 }
 
-fn main() -> TermgameResult {
+fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
+  let dict = read_dict("clues.txt")?;
+
+  let words: Vec<_> = dict
+    .iter()
+    .map(|(str, &freq)| (str.to_owned(), freq))
+    .sorted_by_key(|&(_, freq)| !freq)
+    .take(40000)
+    .collect();
+
+  let xword = XWord::from_grid(grid, words.iter().map(|(str, _)| (*str).clone()))?;
+
+  let (time, solution) = time_fn(|| xword.solve());
+  let solution = solution?;
+  println!("Took {}s", time.as_secs_f32());
+
+  {
+    let result = bitcode::encode(&solution);
+    let mut file = File::create("./crossword.bin")?;
+    file.write_all(&result)?;
+  }
+
+  Ok(())
+}
+
+fn show_steps() -> TermgameResult {
   let dict = read_dict("clues.txt")?;
 
   let total: u64 = dict.iter().map(|(_, &freq)| freq as u64).sum();
@@ -190,11 +210,13 @@ fn main() -> TermgameResult {
     println!("{}", xword.build_grid_from_assignments(farthest_vec)?);
   }
 
-  // {
-  //   let result = bitcode::encode(&solution);
-  //   let mut file = File::create("./crossword.bin")?;
-  //   file.write_all(&result)?;
-  // }
-
   Ok(())
+}
+
+fn main() -> TermgameResult {
+  if true {
+    find_and_save_solution(XWord::build_grid(sunday())?)
+  } else {
+    show_steps()
+  }
 }
