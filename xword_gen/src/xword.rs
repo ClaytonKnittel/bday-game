@@ -1118,62 +1118,6 @@ mod tests {
     Ok(())
   }
 
-  // #[gtest]
-  // fn test_entry_map() {
-  //   let xword = XWord::from_layout(
-  //     "__
-  //      X_",
-  //     ["ab", "bc"].into_iter().map(|str| str.to_owned()).collect(),
-  //   );
-
-  //   assert_that!(xword, ok(anything()));
-  //   let xword = xword.unwrap();
-  //   let entry_map = xword.build_entry_map();
-  //   expect_that!(
-  //     entry_map,
-  //     unordered_elements_are![
-  //       (
-  //         /*length=*/ &1,
-  //         &vec![
-  //           XWordCluePosition {
-  //             pos: Pos { x: 1, y: 1 },
-  //             clue_number: XWordClueNumber {
-  //               number: 1,
-  //               is_row: true
-  //             }
-  //           },
-  //           XWordCluePosition {
-  //             pos: Pos::zero(),
-  //             clue_number: XWordClueNumber {
-  //               number: 0,
-  //               is_row: false
-  //             }
-  //           }
-  //         ]
-  //       ),
-  //       (
-  //         /*length=*/ &2,
-  //         &vec![
-  //           XWordCluePosition {
-  //             pos: Pos::zero(),
-  //             clue_number: XWordClueNumber {
-  //               number: 0,
-  //               is_row: true
-  //             }
-  //           },
-  //           XWordCluePosition {
-  //             pos: Pos { x: 1, y: 0 },
-  //             clue_number: XWordClueNumber {
-  //               number: 1,
-  //               is_row: false
-  //             }
-  //           }
-  //         ]
-  //       ),
-  //     ]
-  //   );
-  // }
-
   #[gtest]
   fn test_word_assignments() -> TermgameResult {
     let xword = XWord::from_grid(

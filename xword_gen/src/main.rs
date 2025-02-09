@@ -175,9 +175,10 @@ fn main() -> TermgameResult {
   for farthest_vec in dlx
     .find_solutions_stepwise()
     .with_names()
-    .scan(Vec::new(), |longest_vec, solution_vec| {
+    .scan(Vec::new(), |longest_vec, solution| {
+      let solution_vec = solution.take_result();
       Some(if solution_vec.len() > longest_vec.len() {
-        *longest_vec = solution_vec;
+        *longest_vec = solution_vec.clone();
         Some(longest_vec.clone())
       } else {
         None

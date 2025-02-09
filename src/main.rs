@@ -20,7 +20,7 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_gen::{
-  dlx::DlxIteratorWithNames,
+  dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
   xword::{XWord, XWordTile},
 };
 
@@ -167,8 +167,16 @@ fn show_dlx_iters() -> TermgameResult {
   let mut x_iter = dlx
     .find_solutions_stepwise()
     .with_names()
-    .map(|partial_solution| xword_solver.build_grid_from_assignments(partial_solution));
+    .map(|partial_solution| match partial_solution {
+      StepwiseDlxIterResult::Step(solution) => {
+        StepwiseDlxIterResult::Step(xword_solver.build_grid_from_assignments(solution))
+      }
+      StepwiseDlxIterResult::Solution(solution) => {
+        StepwiseDlxIterResult::Solution(xword_solver.build_grid_from_assignments(solution))
+      }
+    });
 
+  let mut done = false;
   let pc_uid = ev
     .scene()
     .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
@@ -176,8 +184,15 @@ fn show_dlx_iters() -> TermgameResult {
     let width = window.width() as i32;
     let height = window.height() as i32;
 
-    if t % 2 == 0 {
+    if !done && t % 2 == 0 {
       if let Some(grid) = x_iter.next() {
+        let grid = match grid {
+          StepwiseDlxIterResult::Step(grid) => grid,
+          StepwiseDlxIterResult::Solution(grid) => {
+            done = true;
+            grid
+          }
+        };
         scene.entity_mut::<Crossword>(xword_uid)?.swap_grid(grid?);
       }
     }
