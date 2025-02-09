@@ -5,20 +5,20 @@ mod interactive_grid;
 mod pc;
 
 use std::{
-  collections::{hash_map::Entry, HashMap, HashSet},
+  collections::HashSet,
   fs::{self, File},
-  io::{BufRead, BufReader, Write},
+  io::Write,
   process::ExitCode,
 };
 
 use clap::{Parser, ValueEnum};
 use crossword::Crossword;
 use interactive_grid::InteractiveGrid;
-use itertools::Itertools;
 use pc::Pc;
 use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
+use xword_dict::XWordDict;
 use xword_gen::{
   dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
   xword::{XWord, XWordTile},
@@ -47,45 +47,17 @@ fn read_grid(path: &str) -> TermgameResult<InteractiveGrid> {
   )?)?))
 }
 
-fn read_dict(path: &str) -> TermgameResult<HashMap<String, u32>> {
-  let mut result = HashMap::new();
-  let reader = BufReader::new(File::open(path)?);
-  for line in reader.lines() {
-    let line = line?;
-    let items: Vec<_> = line.split('\t').collect();
-    if items.len() != 4 {
-      continue;
-    }
-
-    let answer = items[2];
-    // let clue = items[3];
-
-    let answer_len = answer.chars().count();
-    if answer_len <= 2
-      || !answer.chars().all(|c| c.is_alphabetic())
-      || answer.chars().all(|c| c.to_ascii_lowercase() == 'x')
-      || (answer.chars().all_equal() && answer_len > 3)
-    {
-      continue;
-    }
-    match result.entry(answer.to_ascii_lowercase()) {
-      Entry::Occupied(mut entry) => *entry.get_mut() += 1,
-      Entry::Vacant(entry) => {
-        entry.insert(1);
-      }
-    }
-  }
-
-  Ok(result)
+fn read_dict() -> TermgameResult<XWordDict> {
+  const DICT_PATH: &str = "./xword_gen/dict.bin";
+  Ok(bitcode::decode(&fs::read(DICT_PATH)?)?)
 }
 
 fn build_dict() -> TermgameResult<HashSet<String>> {
   Ok(
-    read_dict("xword_gen/clues.txt")?
+    read_dict()?
+      .top_n_words(150000)
       .into_iter()
-      .sorted_by_key(|&(_, freq)| !freq)
-      .take(120000)
-      .map(|(str, _)| str)
+      .map(|str| str.to_owned())
       .collect(),
   )
 }
@@ -138,7 +110,6 @@ fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
 
-#[allow(dead_code)]
 fn interactive_grid() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(50, 50));
@@ -178,8 +149,8 @@ fn interactive_grid() -> TermgameResult {
 fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let orig_grid = XWord::build_grid(sunday())?;
-  // let orig_grid = mega_grid()?;
+  // let orig_grid = XWord::build_grid(sunday())?;
+  let orig_grid = mega_grid()?;
   let grid = orig_grid.map(|&is_empty| {
     if is_empty {
       XWordTile::Empty

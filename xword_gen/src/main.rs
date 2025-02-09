@@ -81,7 +81,7 @@ fn mega() -> TermgameResult<Grid<bool>> {
 
 fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
   let dict = read_dict()?;
-  let words: Vec<_> = dict.top_n_words(150000);
+  let words: Vec<_> = dict.top_n_words(220000);
   let xword = XWord::from_grid(grid, words.into_iter().map(|str| str.to_owned()))?;
 
   let (time, solution) = time_fn(|| xword.solve());

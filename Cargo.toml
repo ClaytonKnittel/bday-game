@@ -9,4 +9,5 @@ itertools = "0.14.0"
 serde = { version = "1.0.217", features = ["derive"] }
 termgame = { path = "./termgame" }
 util = { path = "./util" }
+xword_dict = { path = "./xword_dict" }
 xword_gen = { path = "./xword_gen" }

@@ -82,6 +82,7 @@ dependencies = [
  "serde",
  "termgame",
  "util",
+ "xword_dict",
  "xword_gen",
 ]
 
