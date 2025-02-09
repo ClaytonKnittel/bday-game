@@ -28,11 +28,7 @@ fn build_and_save_dict_from_xd(xd_path: &str) -> TermgameResult {
 }
 
 fn read_dict() -> TermgameResult<XWordDict> {
-  XWordDict::parse_xd_file(
-    BufReader::new(File::open(DICT_PATH)?)
-      .lines()
-      .collect::<Result<Vec<_>, _>>()?,
-  )
+  Ok(bitcode::decode(&fs::read(DICT_PATH)?)?)
 }
 
 const fn saturday() -> &'static str {
@@ -144,9 +140,9 @@ fn show_steps() -> TermgameResult {
 }
 
 fn main() -> TermgameResult {
-  if false {
+  if true {
     find_and_save_solution(mega()?)
-  } else if true {
+  } else if false {
     build_and_save_dict_from_xd("./clues.txt")
   } else {
     show_steps()
