@@ -107,6 +107,32 @@ const fn saturday() -> &'static str {
    _____XX________"
 }
 
+const fn sunday() -> &'static str {
+  "________X_______X______
+   ________X_______X______
+   ________X_______X______
+   ___X______X____X___X___
+   ____XX_____X______X____
+   ______X_____XX____X____
+   XXX____X____X____X_____
+   ___X_____X______X______
+   ________X_____X_____XXX
+   _____X_______XXX_______
+   _____XX_____X______X___
+   ____X_____________X____
+   ___X______X_____XX_____
+   _______XXX_______X_____
+   XXX_____X_____X________
+   ______X______X_____X___
+   _____X____X____X____XXX
+   ____X____XX_____X______
+   ____X______X_____XX____
+   ___X___X____X______X___
+   ______X_______X________
+   ______X_______X________
+   ______X_______X________"
+}
+
 fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
@@ -151,7 +177,7 @@ fn interactive_grid() -> TermgameResult {
 fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let orig_grid = XWord::build_grid(saturday())?;
+  let orig_grid = XWord::build_grid(sunday())?;
   // let orig_grid = mega_grid()?;
   let grid = orig_grid.map(|&is_empty| {
     if is_empty {
