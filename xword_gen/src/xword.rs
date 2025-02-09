@@ -895,6 +895,22 @@ mod tests {
     expect_float_eq!(map.likelihood(3, ('c', 0)), 0.);
   }
 
+  #[gtest]
+  fn test_letter_frequency_map_words_with_length() {
+    let map = LetterFrequencyMap::from_words(["a", "b", "c", "ab", "ac", "cc"]);
+
+    expect_that!(map.words_with_length(0).collect::<Vec<_>>(), empty());
+    expect_that!(
+      map.words_with_length(1).collect::<Vec<_>>(),
+      unordered_elements_are![&"a", &"b", &"c"]
+    );
+    expect_that!(
+      map.words_with_length(2).collect::<Vec<_>>(),
+      unordered_elements_are![&"ab", &"ac", &"cc"]
+    );
+    expect_that!(map.words_with_length(3).collect::<Vec<_>>(), empty());
+  }
+
   // #[gtest]
   // fn test_entry_map() {
   //   let xword = XWord::from_layout(
