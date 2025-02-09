@@ -624,7 +624,8 @@ mod tests {
   };
 
   use crate::xword::{
-    XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint, XWordTile,
+    LetterFrequencyMap, XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint,
+    XWordTile,
   };
 
   use super::XWord;
@@ -868,6 +869,30 @@ mod tests {
     );
 
     Ok(())
+  }
+
+  #[gtest]
+  fn test_letter_frequency_map_likelihood() {
+    let map = LetterFrequencyMap::from_words(["a", "b", "c", "ab", "ac", "cc"]);
+
+    expect_float_eq!(map.likelihood(1, ('a', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(1, ('b', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(1, ('c', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(1, ('d', 0)), 0.);
+
+    expect_float_eq!(map.likelihood(2, ('a', 0)), 2. / 3.);
+    expect_float_eq!(map.likelihood(2, ('b', 0)), 0.);
+    expect_float_eq!(map.likelihood(2, ('c', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(2, ('d', 0)), 0.);
+
+    expect_float_eq!(map.likelihood(2, ('a', 1)), 0.);
+    expect_float_eq!(map.likelihood(2, ('b', 1)), 1. / 3.);
+    expect_float_eq!(map.likelihood(2, ('c', 1)), 2. / 3.);
+    expect_float_eq!(map.likelihood(2, ('d', 1)), 0.);
+
+    expect_float_eq!(map.likelihood(3, ('a', 0)), 0.);
+    expect_float_eq!(map.likelihood(3, ('b', 0)), 0.);
+    expect_float_eq!(map.likelihood(3, ('c', 0)), 0.);
   }
 
   // #[gtest]
