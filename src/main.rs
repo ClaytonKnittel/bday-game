@@ -180,11 +180,11 @@ fn show_dlx_iters() -> TermgameResult {
   let pc_uid = ev
     .scene()
     .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
-  ev.run_event_loop(|scene, window, t| {
+  ev.run_event_loop(|scene, window, _| {
     let width = window.width() as i32;
     let height = window.height() as i32;
 
-    if !done && t % 2 == 0 {
+    if !done {
       if let Some(grid) = x_iter.next() {
         let grid = match grid {
           StepwiseDlxIterResult::Step(grid) => grid,
