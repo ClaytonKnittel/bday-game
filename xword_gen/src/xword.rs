@@ -11,6 +11,7 @@ use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
+  union_find::UnionFind,
 };
 
 use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType};
@@ -603,6 +604,38 @@ impl XWord {
         score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
       })
       .map(|(constraints, _)| constraints)
+  }
+
+  fn build_partition_uf(&self) -> UnionFind<Pos> {
+    let mut uf = UnionFind::from_keys(self.board.positions().filter(|&pos| self.available(pos)));
+    for (
+      XWordEntry {
+        number,
+        pos,
+        length,
+      },
+      is_row,
+    ) in self
+      .iterate_row_clues()
+      .map(|entry| (entry, true))
+      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
+    {
+      for (pos1, pos2) in self
+        .clue_letter_positions(
+          &XWordCluePosition {
+            pos,
+            clue_number: XWordClueNumber { number, is_row },
+          },
+          length,
+        )
+        .filter(|&pos| matches!(self.board.get(pos), Some(XWordTile::Empty)))
+        .tuple_windows()
+      {
+        uf.union(pos1, pos2);
+      }
+    }
+
+    uf
   }
 
   pub fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<XWordTile>>
