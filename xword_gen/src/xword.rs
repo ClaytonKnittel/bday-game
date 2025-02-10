@@ -673,21 +673,6 @@ mod tests {
 
   use super::XWord;
 
-  // #[derive(Debug, PartialEq, Eq, Hash)]
-  // struct TestConstraint {
-  //   xword_constraint: XWordConstraint,
-  //   header_type: HeaderType,
-  // }
-
-  // impl From<(XWordConstraint, HeaderType)> for TestConstraint {
-  //   fn from((xword_constraint, header_type): (XWordConstraint, HeaderType)) -> Self {
-  //     Self {
-  //       xword_constraint,
-  //       header_type,
-  //     }
-  //   }
-  // }
-
   #[gtest]
   fn test_empty() {
     let grid = XWord::build_grid("");
