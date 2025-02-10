@@ -8,7 +8,7 @@ use std::{
 use dlx::DlxIteratorWithNames;
 use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
 use xword_dict::XWordDict;
-use xword_gen::xword::XWord;
+use xword_gen::xword::{XWord, XWordTile};
 
 const DICT_PATH: &str = "./dict.bin";
 
@@ -79,7 +79,7 @@ fn mega() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("../grid.bin")?)?)
 }
 
-fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
+fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   let dict = read_dict()?;
   let words: Vec<_> = dict.top_n_words(180_000);
 

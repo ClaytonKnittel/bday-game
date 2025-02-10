@@ -149,16 +149,11 @@ fn interactive_grid() -> TermgameResult {
 fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let orig_grid = XWord::build_grid(sunday())?;
-  // let orig_grid = mega_grid()?;
-  let grid = orig_grid.map(|&is_empty| {
-    if is_empty {
-      XWordTile::Empty
-    } else {
-      XWordTile::Wall
-    }
-  });
-  let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
+  let grid = XWord::build_grid(sunday())?;
+  // let grid = mega_grid()?;
+  let xword_uid = ev
+    .scene()
+    .add_entity(Box::new(Crossword::from_grid(grid.clone())));
 
   // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
@@ -170,7 +165,7 @@ fn show_dlx_iters() -> TermgameResult {
   ];
 
   let xword_solver =
-    XWord::from_grid_with_required(orig_grid, REQUIRED.map(|str| str.to_owned()), build_dict()?)?;
+    XWord::from_grid_with_required(grid, REQUIRED.map(|str| str.to_owned()), build_dict()?)?;
   let mut dlx = xword_solver.build_dlx();
   let mut x_iter = dlx
     .find_solutions_stepwise()
