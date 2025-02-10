@@ -81,7 +81,7 @@ fn mega() -> TermgameResult<Grid<bool>> {
 
 fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
   let dict = read_dict()?;
-  let words: Vec<_> = dict.top_n_words(1_000_000);
+  let words: Vec<_> = dict.top_n_words(180_000);
 
   #[rustfmt::skip]
   const REQUIRED: [&str; 1] = [
@@ -94,13 +94,24 @@ fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
   //   "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
   // ];
 
-  let xword = XWord::from_grid_with_required(
+  let xword = XWord::from_grid(
     grid,
-    REQUIRED.into_iter().map(|str| str.to_owned()),
+    // REQUIRED.into_iter().map(|str| str.to_owned()),
     words.into_iter().map(|str| str.to_owned()),
   )?;
 
+  // let guard = pprof::ProfilerGuardBuilder::default()
+  //   .frequency(1000)
+  //   .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+  //   .build()?;
+
   let (time, solution) = time_fn(|| xword.solve());
+
+  // if let Ok(report) = guard.report().build() {
+  //   let file = std::fs::File::create("xword_gen.svg")?;
+  //   report.flamegraph(file)?;
+  // };
+
   let solution = solution?;
   println!("Took {}s", time.as_secs_f32());
 
@@ -157,7 +168,8 @@ fn show_steps() -> TermgameResult {
 
 fn main() -> TermgameResult {
   if true {
-    find_and_save_solution(mega()?)
+    // find_and_save_solution(mega()?)
+    find_and_save_solution(XWord::build_grid(sunday())?)
   } else if false {
     build_and_save_dict_from_xd("./clues.txt")
   } else {

@@ -149,8 +149,8 @@ fn interactive_grid() -> TermgameResult {
 fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  // let orig_grid = XWord::build_grid(sunday())?;
-  let orig_grid = mega_grid()?;
+  let orig_grid = XWord::build_grid(sunday())?;
+  // let orig_grid = mega_grid()?;
   let grid = orig_grid.map(|&is_empty| {
     if is_empty {
       XWordTile::Empty
@@ -160,12 +160,13 @@ fn show_dlx_iters() -> TermgameResult {
   });
   let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
 
+  // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 25] = [
-    "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen",
-    "paul", "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan",
-    "jonathan", "rose", "alex", "cindy", "cooper", "jessica", "kathy",
-    "laney", "sruthi", "christina",
+  const REQUIRED: [&str; 24] = [
+    "clayton", "eugenia", "andrew", "jackson","matt", "bchan", "austen", "paul",
+    "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
+    "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
+    // "christina",
   ];
 
   let xword_solver =

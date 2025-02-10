@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 util = { path = "../util" }
 xword_dict = { path = "../xword_dict" }
-dlx = { git = "https://github.com/ClaytonKnittel/dlx-rs.git", rev = "9d2a51cd1ff190c33e122bfbbee391b48c94fca4" }
+dlx = { git = "https://github.com/ClaytonKnittel/dlx-rs.git", rev = "6b3e55ef4846390e374d4f7727b44b9da5710fcb" }
 itertools = "0.14.0"
 googletest = "0.13.0"
 rand = "0.9.0"
