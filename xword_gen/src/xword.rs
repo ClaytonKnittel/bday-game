@@ -93,17 +93,11 @@ pub struct XWordWord {
 
 impl XWordWord {
   pub fn new(word: String) -> Self {
-    XWordWord {
-      word,
-      required: false,
-    }
+    XWordWord { word, required: false }
   }
 
   pub fn new_required(word: String) -> Self {
-    XWordWord {
-      word,
-      required: true,
-    }
+    XWordWord { word, required: true }
   }
 }
 
@@ -146,9 +140,7 @@ struct LetterFrequencyMap<'a> {
 
 impl<'a> LetterFrequencyMap<'a> {
   fn new() -> Self {
-    Self {
-      frequencies: HashMap::new(),
-    }
+    Self { frequencies: HashMap::new() }
   }
 
   fn from_words(words: impl IntoIterator<Item = &'a str>) -> Self {
@@ -230,11 +222,7 @@ impl XWord {
       .map(|(id, word)| ((id + required_words.len()) as u32, word))
       .collect();
 
-    Ok(Self {
-      board,
-      required_words,
-      bank,
-    })
+    Ok(Self { board, required_words, bank })
   }
 
   pub fn from_grid(
@@ -334,10 +322,7 @@ impl XWord {
         }
         *self.clue_number += 1;
         let mut length = 1;
-        let pos = Pos {
-          x: (self.x - 1) as i32,
-          y: self.y as i32,
-        };
+        let pos = Pos { x: (self.x - 1) as i32, y: self.y as i32 };
 
         loop {
           self.x += 1;
@@ -351,11 +336,7 @@ impl XWord {
           }
         }
 
-        Some(XWordEntry {
-          number,
-          pos,
-          length,
-        })
+        Some(XWordEntry { number, pos, length })
       }
     }
 
@@ -378,10 +359,8 @@ impl XWord {
   }
 
   fn iterate_col_clues(&self) -> impl Iterator<Item = XWordEntry> + use<'_> {
-    Self::iterate_board_row_clues(self.board.transpose()).map(|entry| XWordEntry {
-      pos: entry.pos.transpose(),
-      ..entry
-    })
+    Self::iterate_board_row_clues(self.board.transpose())
+      .map(|entry| XWordEntry { pos: entry.pos.transpose(), ..entry })
   }
 
   fn clue_letter_positions<'a>(
@@ -444,42 +423,28 @@ impl XWord {
   fn iter_board_entries(&self) -> impl Iterator<Item = (XWordCluePosition, u32)> + '_ {
     self
       .iterate_row_clues()
-      .map(
-        |XWordEntry {
-           number,
-           pos,
-           length,
-         }| {
-          (
-            XWordCluePosition {
-              pos,
-              clue_number: XWordClueNumber {
-                number,
-                is_row: true,
+      .map(|XWordEntry { number, pos, length }| {
+        (
+          XWordCluePosition {
+            pos,
+            clue_number: XWordClueNumber { number, is_row: true },
+          },
+          length,
+        )
+      })
+      .chain(
+        self
+          .iterate_col_clues()
+          .map(|XWordEntry { number, pos, length }| {
+            (
+              XWordCluePosition {
+                pos,
+                clue_number: XWordClueNumber { number, is_row: false },
               },
-            },
-            length,
-          )
-        },
+              length,
+            )
+          }),
       )
-      .chain(self.iterate_col_clues().map(
-        |XWordEntry {
-           number,
-           pos,
-           length,
-         }| {
-          (
-            XWordCluePosition {
-              pos,
-              clue_number: XWordClueNumber {
-                number,
-                is_row: false,
-              },
-            },
-            length,
-          )
-        },
-      ))
   }
 
   fn letter_likelihood_score(
@@ -612,10 +577,7 @@ impl XWord {
 
             (
               (
-                XWordClueAssignment {
-                  id,
-                  clue_pos: clue_pos.clone(),
-                },
+                XWordClueAssignment { id, clue_pos: clue_pos.clone() },
                 constraints,
               ),
               self.word_likelihood_score(word, &clue_pos, &frequency_map),
@@ -631,14 +593,7 @@ impl XWord {
 
   fn build_partition_uf(&self) -> UnionFind<Pos> {
     let mut uf = UnionFind::from_keys(self.board.positions().filter(|&pos| self.empty(pos)));
-    for (
-      XWordEntry {
-        number,
-        pos,
-        length,
-      },
-      is_row,
-    ) in self
+    for (XWordEntry { number, pos, length }, is_row) in self
       .iterate_row_clues()
       .map(|entry| (entry, true))
       .chain(self.iterate_col_clues().map(|entry| (entry, false)))
@@ -664,11 +619,7 @@ impl XWord {
       .map(|entry| (entry, true))
       .chain(self.iterate_col_clues().map(|entry| (entry, false)))
     {
-      let XWordEntry {
-        number,
-        pos,
-        length,
-      } = entry;
+      let XWordEntry { number, pos, length } = entry;
       debug_assert!(self
         .clue_letter_positions(
           &XWordCluePosition {
@@ -745,32 +696,19 @@ impl XWord {
       .iterate_row_clues()
       .map(|entry| (entry, true))
       .chain(self.iterate_col_clues().map(|entry| (entry, false)))
-      .map(
-        |(
-          XWordEntry {
-            number,
-            pos,
-            length,
-          },
-          is_row,
-        )| { (XWordClueNumber { number, is_row }, pos, length) },
-      )
+      .map(|(XWordEntry { number, pos, length }, is_row)| {
+        (XWordClueNumber { number, is_row }, pos, length)
+      })
     {
       if let Some(uf_id) = self
         .clue_letter_positions(
-          &XWordCluePosition {
-            pos,
-            clue_number: clue_number.clone(),
-          },
+          &XWordCluePosition { pos, clue_number: clue_number.clone() },
           length,
         )
         .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
       {
         for pos in self.clue_letter_positions(
-          &XWordCluePosition {
-            pos,
-            clue_number: clue_number.clone(),
-          },
+          &XWordCluePosition { pos, clue_number: clue_number.clone() },
           length,
         ) {
           let constraints = tile_constraints.entry(uf_id).or_default();
@@ -798,8 +736,7 @@ impl XWord {
 
     for assignment @ (
       XWordClueAssignment {
-        clue_pos: XWordCluePosition { pos, .. },
-        ..
+        clue_pos: XWordCluePosition { pos, .. }, ..
       },
       _,
     ) in self.build_word_assignments()
@@ -1011,70 +948,49 @@ mod tests {
         &(
           XWordCluePosition {
             pos: Pos { x: 0, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 0,
-              is_row: true
-            }
+            clue_number: XWordClueNumber { number: 0, is_row: true }
           },
           4
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 0, y: 1 },
-            clue_number: XWordClueNumber {
-              number: 1,
-              is_row: true
-            }
+            clue_number: XWordClueNumber { number: 1, is_row: true }
           },
           1
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 2, y: 1 },
-            clue_number: XWordClueNumber {
-              number: 2,
-              is_row: true
-            }
+            clue_number: XWordClueNumber { number: 2, is_row: true }
           },
           2
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 0, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 0,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 0, is_row: false }
           },
           2
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 1, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 1,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 1, is_row: false }
           },
           1
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 2, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 2,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 2, is_row: false }
           },
           2
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 3, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 3,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 3, is_row: false }
           },
           2
         ),
@@ -1277,10 +1193,7 @@ mod tests {
         "yab",
         &XWordCluePosition {
           pos: Pos { x: 0, y: 0 },
-          clue_number: XWordClueNumber {
-            number: 0,
-            is_row: false
-          },
+          clue_number: XWordClueNumber { number: 0, is_row: false },
         },
         &frequency_map,
       ),
@@ -1292,10 +1205,7 @@ mod tests {
         "weal",
         &XWordCluePosition {
           pos: Pos { x: 3, y: 0 },
-          clue_number: XWordClueNumber {
-            number: 3,
-            is_row: false
-          },
+          clue_number: XWordClueNumber { number: 3, is_row: false },
         },
         &frequency_map,
       ),
@@ -1307,10 +1217,7 @@ mod tests {
         "ey",
         &XWordCluePosition {
           pos: Pos { x: 2, y: 1 },
-          clue_number: XWordClueNumber {
-            number: 2,
-            is_row: true
-          },
+          clue_number: XWordClueNumber { number: 2, is_row: true },
         },
         &frequency_map,
       ),
@@ -1342,18 +1249,12 @@ mod tests {
             id: &ab_id,
             clue_pos: pat!(XWordCluePosition {
               pos: &Pos::zero(),
-              clue_number: pat!(XWordClueNumber {
-                number: &0,
-                is_row: &true
-              })
+              clue_number: pat!(XWordClueNumber { number: &0, is_row: &true })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &0,
-                is_row: &true
-              })
+              pat!(XWordClueNumber { number: &0, is_row: &true })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: ab_id },
@@ -1366,18 +1267,12 @@ mod tests {
             id: &ab_id,
             clue_pos: pat!(XWordCluePosition {
               pos: pat!(Pos { x: &1, y: &0 }),
-              clue_number: pat!(XWordClueNumber {
-                number: &1,
-                is_row: &false
-              })
+              clue_number: pat!(XWordClueNumber { number: &1, is_row: &false })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &1,
-                is_row: &false
-              })
+              pat!(XWordClueNumber { number: &1, is_row: &false })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: ab_id },
@@ -1390,18 +1285,12 @@ mod tests {
             id: &c_id,
             clue_pos: pat!(XWordCluePosition {
               pos: pat!(Pos { x: &1, y: &1 }),
-              clue_number: pat!(XWordClueNumber {
-                number: &1,
-                is_row: &true
-              })
+              clue_number: pat!(XWordClueNumber { number: &1, is_row: &true })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &1,
-                is_row: &true
-              })
+              pat!(XWordClueNumber { number: &1, is_row: &true })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: c_id },
@@ -1414,18 +1303,12 @@ mod tests {
             id: &c_id,
             clue_pos: pat!(XWordCluePosition {
               pos: pat!(Pos { x: &0, y: &0 }),
-              clue_number: pat!(XWordClueNumber {
-                number: &0,
-                is_row: &false
-              })
+              clue_number: pat!(XWordClueNumber { number: &0, is_row: &false })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &0,
-                is_row: &false
-              })
+              pat!(XWordClueNumber { number: &0, is_row: &false })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: c_id },
@@ -1471,10 +1354,7 @@ mod tests {
       elements_are![
         contains_each![
           pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-            pat!(XWordClueNumber {
-              number: &0,
-              is_row: &true
-            })
+            pat!(XWordClueNumber { number: &0, is_row: &true })
           )))),
           pat!(Constraint::Secondary(property!(
             &XWordColorItem.item(),
@@ -1483,10 +1363,7 @@ mod tests {
         ],
         contains_each![
           pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-            pat!(XWordClueNumber {
-              number: &0,
-              is_row: &true
-            })
+            pat!(XWordClueNumber { number: &0, is_row: &true })
           )))),
           pat!(Constraint::Secondary(property!(
             &XWordColorItem.item(),

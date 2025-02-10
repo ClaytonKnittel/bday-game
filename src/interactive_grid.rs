@@ -20,9 +20,7 @@ pub struct InteractiveGrid {
 
 impl InteractiveGrid {
   pub fn new(width: u32, height: u32) -> Self {
-    Self {
-      grid: Grid::new(width, height),
-    }
+    Self { grid: Grid::new(width, height) }
   }
 
   pub fn from_grid(grid: Grid<bool>) -> Self {
@@ -135,10 +133,7 @@ impl Entity for InteractiveGrid {
   }
 
   fn click(&mut self, pos: Pos) -> util::error::TermgameResult {
-    if let Some(tile) = self.grid.get_mut(Pos {
-      x: pos.x / 2,
-      ..pos
-    }) {
+    if let Some(tile) = self.grid.get_mut(Pos { x: pos.x / 2, ..pos }) {
       *tile = !*tile;
     }
     Ok(())
