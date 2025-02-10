@@ -160,7 +160,19 @@ fn show_dlx_iters() -> TermgameResult {
   });
   let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
 
-  let xword_solver = XWord::from_grid(orig_grid, build_dict()?)?;
+  // #[rustfmt::skip]
+  // const REQUIRED: [&str; 25] = [
+  //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen",
+  //   "paul", "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan",
+  //   "jonathan", "rose", "alex", "cindy", "cooper", "jessica", "kathy",
+  //   "laney", "sruthi", "christina",
+  // ];
+
+  let xword_solver = XWord::from_grid(
+    orig_grid,
+    // REQUIRED.map(|str| str.to_owned()),
+    build_dict()?,
+  )?;
   let mut dlx = xword_solver.build_dlx();
   let mut x_iter = dlx
     .find_solutions_stepwise()
@@ -192,6 +204,8 @@ fn show_dlx_iters() -> TermgameResult {
           }
         };
         scene.entity_mut::<Crossword>(xword_uid)?.swap_grid(grid?);
+      } else {
+        done = true;
       }
     }
 
@@ -254,7 +268,7 @@ fn run() -> TermgameResult {
 
 fn main() -> ExitCode {
   if let Err(err) = run() {
-    eprintln!("Error: {err}");
+    println!("Error: {err}");
     ExitCode::FAILURE
   } else {
     ExitCode::SUCCESS
