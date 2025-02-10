@@ -28,6 +28,26 @@ pub struct XWordCluePosition {
   clue_number: XWordClueNumber,
 }
 
+/// Tiles indicate letters filled in on the board by a clue. Each letter
+/// placement by a horizontal/vertical clue selects 5 of the 10 constraints
+/// for that letter at that position, with the opposing horizontal/vertical
+/// clue choosing the same letter taking the complement 5 constraints.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct XWordTileConstraint {
+  pos: Pos,
+  bit: u32,
+}
+
+impl XWordTileConstraint {
+  fn into_constraint(self) -> (XWordConstraint, HeaderType) {
+    (XWordConstraint::Tile(self), HeaderType::Primary)
+  }
+
+  fn into_item_constraint(self) -> Constraint<XWordConstraint> {
+    Constraint::Primary(XWordConstraint::Tile(self))
+  }
+}
+
 const NUM_TILE_BITS: u32 = 10;
 
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
@@ -36,14 +56,12 @@ const NUM_TILE_BITS: u32 = 10;
 pub enum XWordConstraint {
   /// ClueNumber is the clue position identifier this clue would get.
   ClueNumber(XWordClueNumber),
-  /// Tiles indicate letters filled in on the board by a clue. Each letter
-  /// placement by a horizontal/vertical clue selects 5 of the 10 constraints
-  /// for that letter at that position, with the opposing horizontal/vertical
-  /// clue choosing the same letter taking the complement 5 constraints.
-  Tile { pos: Pos, bit: u32 },
+  Tile(XWordTileConstraint),
   /// Clue id: each clue has a unique id. This prevents the same clue from
   /// being used twice.
-  Clue { id: u32 },
+  Clue {
+    id: u32,
+  },
 }
 
 impl XWordConstraint {
@@ -97,6 +115,10 @@ pub enum XWordTile {
 }
 
 impl XWordTile {
+  pub fn empty(&self) -> bool {
+    matches!(self, XWordTile::Empty)
+  }
+
   pub fn available(&self) -> bool {
     matches!(self, XWordTile::Empty | XWordTile::Letter(_))
   }
@@ -399,46 +421,16 @@ impl XWord {
       .zip(self.clue_letter_positions(clue_pos, word_len))
   }
 
-  fn build_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
+  fn tile_constraints_for_pos(&self, pos: Pos) -> impl Iterator<Item = XWordTileConstraint> + '_ {
+    debug_assert!(self.board.get(pos).is_some_and(|tile| tile.empty()));
+    (0..NUM_TILE_BITS).map(move |bit| XWordTileConstraint { pos, bit })
+  }
+
+  fn build_clue_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
     self
-      .iterate_col_clues()
-      .map(|XWordEntry { number, .. }| {
-        (
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number,
-            is_row: false,
-          }),
-          HeaderType::Primary,
-        )
-      })
-      .chain(self.iterate_row_clues().map(|XWordEntry { number, .. }| {
-        (
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number,
-            is_row: true,
-          }),
-          HeaderType::Primary,
-        )
-      }))
-      .chain((0..self.board.height() as i32).flat_map(move |y| {
-        (0..self.board.width() as i32)
-          .flat_map(move |x| {
-            let pos = Pos { x, y };
-            self.board.get(pos).and_then(move |tile| {
-              tile.available().then(move || {
-                (0..NUM_TILE_BITS)
-                  .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
-              })
-            })
-          })
-          .flatten()
-      }))
-      .chain(
-        self
-          .required_words
-          .iter()
-          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Primary)),
-      )
+      .required_words
+      .iter()
+      .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Primary))
       .chain(
         self
           .bank
@@ -542,19 +534,17 @@ impl XWord {
     pos: Pos,
     letter: char,
     is_row: bool,
-  ) -> impl Iterator<Item = Constraint<XWordConstraint>> {
+  ) -> impl Iterator<Item = XWordTileConstraint> {
     debug_assert!(letter.is_ascii_lowercase());
     let bits = (letter as u32) - b'a' as u32;
-    (0..5).map(move |bit_idx| {
-      Constraint::Primary(XWordConstraint::Tile {
-        pos,
-        bit: 2 * bit_idx
-          + if is_row {
-            (bits >> bit_idx) & 0x1
-          } else {
-            1 - ((bits >> bit_idx) & 0x1)
-          },
-      })
+    (0..5).map(move |bit_idx| XWordTileConstraint {
+      pos,
+      bit: 2 * bit_idx
+        + if is_row {
+          (bits >> bit_idx) & 0x1
+        } else {
+          1 - ((bits >> bit_idx) & 0x1)
+        },
     })
   }
 
@@ -616,6 +606,7 @@ impl XWord {
                 .word_letter_positions(&clue_pos, word)
                 .flat_map(|(c, pos)| {
                   Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row)
+                    .map(XWordTileConstraint::into_item_constraint)
                 }),
             );
 
@@ -667,6 +658,30 @@ impl XWord {
       }
     }
 
+    // Debug check that all clues are self-consistent.
+    for (entry, is_row) in self
+      .iterate_row_clues()
+      .map(|entry| (entry, true))
+      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
+    {
+      let XWordEntry {
+        number,
+        pos,
+        length,
+      } = entry;
+      debug_assert!(self
+        .clue_letter_positions(
+          &XWordCluePosition {
+            pos,
+            clue_number: XWordClueNumber { number, is_row }
+          },
+          length
+        )
+        .filter(|&pos| self.empty(pos))
+        .map(|pos| { uf.find(pos) })
+        .all_equal());
+    }
+
     uf
   }
 
@@ -714,44 +729,19 @@ impl XWord {
 
   #[deprecated]
   pub fn build_dlx(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
-    let constraints = self.build_constraints();
+    // let constraints = self.build_constraints();
     let word_assignments = self.build_word_assignments();
-    Dlx::new(constraints, word_assignments)
+    Dlx::new(vec![], word_assignments)
   }
 
   fn build_partitioned_subproblems(&self) -> HashMap<Pos, ProblemParameters> {
     let mut uf = self.build_partition_uf();
 
-    for (
-      XWordEntry {
-        number,
-        pos,
-        length,
-      },
-      is_row,
-    ) in self
-      .iterate_row_clues()
-      .map(|entry| (entry, true))
-      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
-    {
-      debug_assert!(self
-        .clue_letter_positions(
-          &XWordCluePosition {
-            pos,
-            clue_number: XWordClueNumber { number, is_row }
-          },
-          length
-        )
-        .filter(|&pos| self.empty(pos))
-        .map(|pos| { uf.find(pos) })
-        .all_equal());
-    }
-
     // For each subproblem, forbid the use of certain constraints which are not
     // possible to obtain.
-    let mut forbidden_tile_constraints = HashMap::<Pos, HashSet<_>>::new();
+    let mut tile_constraints = HashMap::<Pos, HashSet<_>>::new();
     let mut subproblem_map = HashMap::<Pos, ProblemParameters>::new();
-    for (constraint, pos, length) in self
+    for (clue_number, pos, length) in self
       .iterate_row_clues()
       .map(|entry| (entry, true))
       .chain(self.iterate_col_clues().map(|entry| (entry, false)))
@@ -763,20 +753,9 @@ impl XWord {
             length,
           },
           is_row,
-        )| {
-          (
-            (
-              XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
-              HeaderType::Primary,
-            ),
-            pos,
-            length,
-          )
-        },
+        )| { (XWordClueNumber { number, is_row }, pos, length) },
       )
     {
-      let clue_number = constraint.0.as_clue_number();
-
       if let Some(uf_id) = self
         .clue_letter_positions(
           &XWordCluePosition {
@@ -787,59 +766,33 @@ impl XWord {
         )
         .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
       {
-        for given_pos in self.clue_letter_positions(
+        for pos in self.clue_letter_positions(
           &XWordCluePosition {
             pos,
             clue_number: clue_number.clone(),
           },
           length,
         ) {
-          match self.board.get(given_pos) {
+          let constraints = tile_constraints.entry(uf_id).or_default();
+          match self.board.get(pos) {
             Some(&XWordTile::Letter(letter)) => {
-              forbidden_tile_constraints.entry(uf_id).or_default().extend(
-                Self::letter_tile_constraints(given_pos, letter, !clue_number.is_row),
-              );
+              constraints.extend(Self::letter_tile_constraints(
+                pos,
+                letter,
+                clue_number.is_row,
+              ));
             }
             Some(&XWordTile::Empty) => {
-              // Add this to the set of tile constraints to add.
+              constraints.extend(self.tile_constraints_for_pos(pos));
             }
             _ => unreachable!(),
           }
         }
 
-        subproblem_map
-          .entry(uf_id)
-          .or_default()
-          .constraints
-          .push(constraint);
-      }
-    }
-
-    let mut clues = vec![];
-    for constraint in self.build_constraints() {
-      match constraint {
-        // Skip clue numbers, which are handled above.
-        (XWordConstraint::ClueNumber(_), HeaderType::Primary) => {}
-        (XWordConstraint::Tile { pos, .. }, HeaderType::Primary) => {
-          let uf_id = uf.find(pos);
-          if forbidden_tile_constraints
-            .get(&uf_id)
-            .is_none_or(|forbidden_list| {
-              !forbidden_list.contains(&Constraint::Primary(constraint.0.clone()))
-            })
-          {
-            subproblem_map
-              .entry(uf_id)
-              .or_default()
-              .constraints
-              .push(constraint);
-          }
-        }
-        (XWordConstraint::Clue { .. }, _) => {
-          // Add clues last, which will be added to every subproblem.
-          clues.push(constraint);
-        }
-        _ => unreachable!(),
+        subproblem_map.entry(uf_id).or_default().constraints.push((
+          XWordConstraint::ClueNumber(clue_number),
+          HeaderType::Primary,
+        ));
       }
     }
 
@@ -858,13 +811,11 @@ impl XWord {
         .push(assignment);
     }
 
-    for clue in clues {
-      subproblem_map
-        .values_mut()
-        .for_each(|ProblemParameters { constraints, .. }| {
-          constraints.push(clue.clone());
-        });
-    }
+    subproblem_map
+      .values_mut()
+      .for_each(|ProblemParameters { constraints, .. }| {
+        constraints.extend(self.build_clue_constraints());
+      });
 
     subproblem_map
   }
@@ -1328,7 +1279,7 @@ mod tests {
           pos: Pos { x: 0, y: 0 },
           clue_number: XWordClueNumber {
             number: 0,
-            is_row: false,
+            is_row: false
           },
         },
         &frequency_map,
@@ -1343,7 +1294,7 @@ mod tests {
           pos: Pos { x: 3, y: 0 },
           clue_number: XWordClueNumber {
             number: 3,
-            is_row: false,
+            is_row: false
           },
         },
         &frequency_map,
@@ -1358,7 +1309,7 @@ mod tests {
           pos: Pos { x: 2, y: 1 },
           clue_number: XWordClueNumber {
             number: 2,
-            is_row: true,
+            is_row: true
           },
         },
         &frequency_map,
