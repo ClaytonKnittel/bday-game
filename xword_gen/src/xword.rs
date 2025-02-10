@@ -511,7 +511,7 @@ impl XWord {
     // sorted by a "fitness" score of the clue in that position.
     self
       .iter_board_entries()
-      .flat_map(move |(clue_pos, length)| {
+      .flat_map(move |(clue_pos, length)| -> Vec<_> {
         let clue_pos_constraint =
           Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
 
@@ -548,11 +548,12 @@ impl XWord {
               self.word_likelihood_score(word, &clue_pos, &frequency_map),
             )
           })
-          .sorted_unstable_by(|(_, score1), (_, score2)| {
-            score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
-          })
-          .map(|(constraints, _)| constraints)
+          .collect()
       })
+      .sorted_unstable_by(|(_, score1), (_, score2)| {
+        score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
+      })
+      .map(|(constraints, _)| constraints)
   }
 
   pub fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<XWordTile>>
