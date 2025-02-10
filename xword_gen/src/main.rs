@@ -160,7 +160,10 @@ fn show_steps() -> TermgameResult {
     .flatten()
   // .step_by(5)
   {
-    println!("{}", xword.build_grid_from_assignments(farthest_vec)?);
+    println!(
+      "{}",
+      xword.build_grid_from_assignments(xword.board().clone(), farthest_vec)?
+    );
   }
 
   Ok(())
