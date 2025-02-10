@@ -512,7 +512,7 @@ impl XWord {
           + if is_row {
             (bits >> bit_idx) & 0x1
           } else {
-            !((bits >> bit_idx) & 0x1)
+            1 - ((bits >> bit_idx) & 0x1)
           },
       })
     })
@@ -1158,7 +1158,7 @@ mod tests {
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let c_id = xword.testonly_word_id("c").expect("word c not found");
 
-    let word_assignments: HashSet<_> = xword.build_word_assignments().collect();
+    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
     expect_that!(
       word_assignments,
       unordered_elements_are![
