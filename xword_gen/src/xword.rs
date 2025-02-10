@@ -46,6 +46,15 @@ pub enum XWordConstraint {
   Clue { id: u32 },
 }
 
+impl XWordConstraint {
+  fn as_clue_number(&self) -> &XWordClueNumber {
+    match self {
+      Self::ClueNumber(clue_number) => clue_number,
+      _ => unreachable!(),
+    }
+  }
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueAssignment {
   id: u32,
@@ -738,26 +747,72 @@ impl XWord {
         .all_equal());
     }
 
+    // For each subproblem, forbid the use of certain constraints which are not
+    // possible to obtain.
+    let mut forbidden_tile_constraints = HashMap::<Pos, HashSet<_>>::new();
     let mut subproblem_map = HashMap::<Pos, ProblemParameters>::new();
-    for (constraint, pos) in self
+    for (constraint, pos, length) in self
       .iterate_row_clues()
       .map(|entry| (entry, true))
       .chain(self.iterate_col_clues().map(|entry| (entry, false)))
-      .map(|(XWordEntry { number, pos, .. }, is_row)| {
-        (
+      .map(
+        |(
+          XWordEntry {
+            number,
+            pos,
+            length,
+          },
+          is_row,
+        )| {
           (
-            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
-            HeaderType::Primary,
-          ),
-          pos,
-        )
-      })
+            (
+              XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+              HeaderType::Primary,
+            ),
+            pos,
+            length,
+          )
+        },
+      )
     {
-      subproblem_map
-        .entry(uf.find(pos))
-        .or_default()
-        .constraints
-        .push(constraint);
+      let clue_number = constraint.0.as_clue_number();
+
+      if let Some(uf_id) = self
+        .clue_letter_positions(
+          &XWordCluePosition {
+            pos,
+            clue_number: clue_number.clone(),
+          },
+          length,
+        )
+        .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
+      {
+        for given_pos in self.clue_letter_positions(
+          &XWordCluePosition {
+            pos,
+            clue_number: clue_number.clone(),
+          },
+          length,
+        ) {
+          match self.board.get(given_pos) {
+            Some(&XWordTile::Letter(letter)) => {
+              forbidden_tile_constraints.entry(uf_id).or_default().extend(
+                Self::letter_tile_constraints(given_pos, letter, !clue_number.is_row),
+              );
+            }
+            Some(&XWordTile::Empty) => {
+              // Add this to the set of tile constraints to add.
+            }
+            _ => unreachable!(),
+          }
+        }
+
+        subproblem_map
+          .entry(uf_id)
+          .or_default()
+          .constraints
+          .push(constraint);
+      }
     }
 
     let mut clues = vec![];
@@ -766,13 +821,22 @@ impl XWord {
         // Skip clue numbers, which are handled above.
         (XWordConstraint::ClueNumber(_), HeaderType::Primary) => {}
         (XWordConstraint::Tile { pos, .. }, HeaderType::Primary) => {
-          subproblem_map
-            .entry(uf.find(pos))
-            .or_default()
-            .constraints
-            .push(constraint);
+          let uf_id = uf.find(pos);
+          if forbidden_tile_constraints
+            .get(&uf_id)
+            .is_none_or(|forbidden_list| {
+              !forbidden_list.contains(&Constraint::Primary(constraint.0.clone()))
+            })
+          {
+            subproblem_map
+              .entry(uf_id)
+              .or_default()
+              .constraints
+              .push(constraint);
+          }
         }
         (XWordConstraint::Clue { .. }, _) => {
+          // Add clues last, which will be added to every subproblem.
           clues.push(constraint);
         }
         _ => unreachable!(),
