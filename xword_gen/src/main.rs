@@ -84,11 +84,15 @@ fn find_and_save_solution(grid: Grid<bool>) -> TermgameResult {
   let words: Vec<_> = dict.top_n_words(1_000_000);
 
   #[rustfmt::skip]
-  const REQUIRED: [&str; 25] = [
-    "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
-    "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-    "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
+  const REQUIRED: [&str; 1] = [
+    "clayton",
   ];
+  // #[rustfmt::skip]
+  // const REQUIRED: [&str; 25] = [
+  //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
+  //   "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
+  //   "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
+  // ];
 
   let xword = XWord::from_grid_with_required(
     grid,

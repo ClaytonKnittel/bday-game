@@ -27,15 +27,19 @@ pub struct XWordCluePosition {
   clue_number: XWordClueNumber,
 }
 
+const NUM_TILE_BITS: u32 = 10;
+
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
 /// constraint per letter in the answer.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum XWordConstraint {
   /// ClueNumber is the clue position identifier this clue would get.
   ClueNumber(XWordClueNumber),
-  /// Tiles indicate letters filled in on the board by a clue. These are
-  /// secondary (color) constriants, whose color is the character at this tile.
-  Tile { pos: Pos },
+  /// Tiles indicate letters filled in on the board by a clue. Each letter
+  /// placement by a horizontal/vertical clue selects 5 of the 10 constraints
+  /// for that letter at that position, with the opposing horizontal/vertical
+  /// clue choosing the same letter taking the complement 5 constraints.
+  Tile { pos: Pos, bit: u32 },
   /// Clue id: each clue has a unique id. This prevents the same clue from
   /// being used twice.
   Clue { id: u32 },
@@ -377,12 +381,17 @@ impl XWord {
         )
       }))
       .chain((0..self.board.height() as i32).flat_map(move |y| {
-        (0..self.board.width() as i32).flat_map(move |x| {
-          let pos = Pos { x, y };
-          self.board.get(pos).and_then(|available| {
-            available.then_some((XWordConstraint::Tile { pos }, HeaderType::Secondary))
+        (0..self.board.width() as i32)
+          .flat_map(move |x| {
+            let pos = Pos { x, y };
+            self.board.get(pos).and_then(move |available| {
+              available.then(move || {
+                (0..NUM_TILE_BITS)
+                  .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
+              })
+            })
           })
-        })
+          .flatten()
       }))
       .chain(
         self
@@ -489,6 +498,26 @@ impl XWord {
       .product()
   }
 
+  fn letter_tile_constraints(
+    pos: Pos,
+    letter: char,
+    is_row: bool,
+  ) -> impl Iterator<Item = Constraint<XWordConstraint>> {
+    debug_assert!(letter.is_ascii_lowercase());
+    let bits = (letter as u32) - b'a' as u32;
+    (0..5).map(move |bit_idx| {
+      Constraint::Primary(XWordConstraint::Tile {
+        pos,
+        bit: 2 * bit_idx
+          + if is_row {
+            (bits >> bit_idx) & 0x1
+          } else {
+            !((bits >> bit_idx) & 0x1)
+          },
+      })
+    })
+  }
+
   fn build_word_assignments(
     &self,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
@@ -533,9 +562,13 @@ impl XWord {
             };
 
             let mut constraints = vec![clue_pos_constraint.clone(), word_constraint];
-            constraints.extend(self.word_letter_positions(&clue_pos, word).map(|(c, pos)| {
-              Constraint::Secondary(ColorItem::new(XWordConstraint::Tile { pos }, c as u32))
-            }));
+            constraints.extend(
+              self
+                .word_letter_positions(&clue_pos, word)
+                .flat_map(|(c, pos)| {
+                  Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row)
+                }),
+            );
 
             (
               (
@@ -635,10 +668,25 @@ mod tests {
 
   use crate::xword::{
     LetterFrequencyMap, XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint,
-    XWordTile,
+    XWordTile, NUM_TILE_BITS,
   };
 
   use super::XWord;
+
+  // #[derive(Debug, PartialEq, Eq, Hash)]
+  // struct TestConstraint {
+  //   xword_constraint: XWordConstraint,
+  //   header_type: HeaderType,
+  // }
+
+  // impl From<(XWordConstraint, HeaderType)> for TestConstraint {
+  //   fn from((xword_constraint, header_type): (XWordConstraint, HeaderType)) -> Self {
+  //     Self {
+  //       xword_constraint,
+  //       header_type,
+  //     }
+  //   }
+  // }
 
   #[gtest]
   fn test_empty() {
@@ -739,65 +787,35 @@ mod tests {
     let xword = XWord::from_grid(
       XWord::build_grid(
         "__
-       X_",
+         X_",
       )?,
       ["ab", "bc"].into_iter().map(|str| str.to_owned()),
     )?;
 
-    let constraints: Vec<_> = xword.build_constraints().collect();
-    expect_that!(
-      constraints,
-      unordered_elements_are![
-        &(
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number: 0,
-            is_row: true
+    let constraints: HashSet<_> = xword.build_constraints().collect();
+
+    let expected_constraints: HashSet<_> = [false, true]
+      .into_iter()
+      .flat_map(|is_row| {
+        (0..=1).map(move |number| {
+          (
+            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+            HeaderType::Primary,
+          )
+        })
+      })
+      .chain(
+        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
+          .into_iter()
+          .flat_map(|pos| {
+            (0..NUM_TILE_BITS)
+              .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
           }),
-          HeaderType::Primary
-        ),
-        &(
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number: 1,
-            is_row: true
-          }),
-          HeaderType::Primary
-        ),
-        &(
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number: 0,
-            is_row: false
-          }),
-          HeaderType::Primary
-        ),
-        &(
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number: 1,
-            is_row: false
-          }),
-          HeaderType::Primary
-        ),
-        &(
-          XWordConstraint::Tile {
-            pos: Pos { x: 0, y: 0 }
-          },
-          HeaderType::Secondary
-        ),
-        &(
-          XWordConstraint::Tile {
-            pos: Pos { x: 1, y: 0 }
-          },
-          HeaderType::Secondary
-        ),
-        &(
-          XWordConstraint::Tile {
-            pos: Pos { x: 1, y: 1 }
-          },
-          HeaderType::Secondary
-        ),
-        &(XWordConstraint::Clue { id: 0 }, HeaderType::Secondary),
-        &(XWordConstraint::Clue { id: 1 }, HeaderType::Secondary),
-      ]
-    );
+      )
+      .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
+      .collect();
+
+    expect_that!(constraints, container_eq(expected_constraints));
 
     Ok(())
   }
@@ -1140,116 +1158,104 @@ mod tests {
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let c_id = xword.testonly_word_id("c").expect("word c not found");
 
-    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+    let word_assignments: HashSet<_> = xword.build_word_assignments().collect();
     expect_that!(
       word_assignments,
       unordered_elements_are![
-        &(
-          XWordClueAssignment {
-            id: ab_id,
-            clue_pos: XWordCluePosition {
-              pos: Pos::zero(),
-              clue_number: XWordClueNumber {
-                number: 0,
-                is_row: true
-              }
-            }
-          },
-          vec![
-            Constraint::Primary(XWordConstraint::ClueNumber(XWordClueNumber {
-              number: 0,
-              is_row: true
-            })),
-            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: ab_id }, 0)),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile { pos: Pos::zero() },
-              'a' as u32
-            )),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile {
-                pos: Pos { x: 1, y: 0 }
-              },
-              'b' as u32
-            )),
+        (
+          pat!(XWordClueAssignment {
+            id: &ab_id,
+            clue_pos: pat!(XWordCluePosition {
+              pos: &Pos::zero(),
+              clue_number: pat!(XWordClueNumber {
+                number: &0,
+                is_row: &true
+              })
+            })
+          }),
+          contains_each![
+            pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
+              pat!(XWordClueNumber {
+                number: &0,
+                is_row: &true
+              })
+            )))),
+            pat!(Constraint::Secondary(&ColorItem::new(
+              XWordConstraint::Clue { id: ab_id },
+              0
+            ))),
           ]
         ),
-        &(
-          XWordClueAssignment {
-            id: ab_id,
-            clue_pos: XWordCluePosition {
-              pos: Pos { x: 1, y: 0 },
-              clue_number: XWordClueNumber {
-                number: 1,
-                is_row: false
-              }
-            }
-          },
-          vec![
-            Constraint::Primary(XWordConstraint::ClueNumber(XWordClueNumber {
-              number: 1,
-              is_row: false
-            })),
-            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: ab_id }, 1)),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile {
-                pos: Pos { x: 1, y: 0 }
-              },
-              'a' as u32
-            )),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile {
-                pos: Pos { x: 1, y: 1 }
-              },
-              'b' as u32
-            )),
+        (
+          pat!(XWordClueAssignment {
+            id: &ab_id,
+            clue_pos: pat!(XWordCluePosition {
+              pos: pat!(Pos { x: &1, y: &0 }),
+              clue_number: pat!(XWordClueNumber {
+                number: &1,
+                is_row: &false
+              })
+            })
+          }),
+          contains_each![
+            pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
+              pat!(XWordClueNumber {
+                number: &1,
+                is_row: &false
+              })
+            )))),
+            pat!(Constraint::Secondary(&ColorItem::new(
+              XWordConstraint::Clue { id: ab_id },
+              1
+            ))),
           ]
         ),
-        &(
-          XWordClueAssignment {
-            id: c_id,
-            clue_pos: XWordCluePosition {
-              pos: Pos { x: 1, y: 1 },
-              clue_number: XWordClueNumber {
-                number: 1,
-                is_row: true
-              }
-            }
-          },
-          vec![
-            Constraint::Primary(XWordConstraint::ClueNumber(XWordClueNumber {
-              number: 1,
-              is_row: true
-            })),
-            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: c_id }, 0)),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile {
-                pos: Pos { x: 1, y: 1 }
-              },
-              'c' as u32
-            )),
+        (
+          pat!(XWordClueAssignment {
+            id: &c_id,
+            clue_pos: pat!(XWordCluePosition {
+              pos: pat!(Pos { x: &1, y: &1 }),
+              clue_number: pat!(XWordClueNumber {
+                number: &1,
+                is_row: &true
+              })
+            })
+          }),
+          contains_each![
+            pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
+              pat!(XWordClueNumber {
+                number: &1,
+                is_row: &true
+              })
+            )))),
+            pat!(Constraint::Secondary(&ColorItem::new(
+              XWordConstraint::Clue { id: c_id },
+              0
+            ))),
           ]
         ),
-        &(
-          XWordClueAssignment {
-            id: c_id,
-            clue_pos: XWordCluePosition {
-              pos: Pos::zero(),
-              clue_number: XWordClueNumber {
-                number: 0,
-                is_row: false
-              }
-            }
-          },
-          vec![
-            Constraint::Primary(XWordConstraint::ClueNumber(XWordClueNumber {
-              number: 0,
-              is_row: false
-            })),
-            Constraint::Secondary(ColorItem::new(XWordConstraint::Clue { id: c_id }, 1)),
-            Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Tile { pos: Pos::zero() },
-              'c' as u32
-            )),
+        (
+          pat!(XWordClueAssignment {
+            id: &c_id,
+            clue_pos: pat!(XWordCluePosition {
+              pos: pat!(Pos { x: &0, y: &0 }),
+              clue_number: pat!(XWordClueNumber {
+                number: &0,
+                is_row: &false
+              })
+            })
+          }),
+          contains_each![
+            pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
+              pat!(XWordClueNumber {
+                number: &0,
+                is_row: &false
+              })
+            )))),
+            pat!(Constraint::Secondary(&ColorItem::new(
+              XWordConstraint::Clue { id: c_id },
+              1
+            ))),
           ]
         ),
       ]
@@ -1288,7 +1294,7 @@ mod tests {
     expect_that!(
       first_row_assignments,
       elements_are![
-        elements_are![
+        contains_each![
           pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
             pat!(XWordClueNumber {
               number: &0,
@@ -1299,24 +1305,8 @@ mod tests {
             &XWordColorItem.item(),
             &XWordConstraint::Clue { id: ca_id }
           ))),
-          pat!(Constraint::Secondary(
-            property!(
-              &XWordColorItem.item(),
-              &XWordConstraint::Tile { pos: Pos::zero() }
-            )
-            .and(property!(&XWordColorItem.color(), 'c' as u32))
-          )),
-          pat!(Constraint::Secondary(
-            property!(
-              &XWordColorItem.item(),
-              &XWordConstraint::Tile {
-                pos: Pos { x: 1, y: 0 }
-              }
-            )
-            .and(property!(&XWordColorItem.color(), 'a' as u32))
-          )),
         ],
-        elements_are![
+        contains_each![
           pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
             pat!(XWordClueNumber {
               number: &0,
@@ -1327,22 +1317,6 @@ mod tests {
             &XWordColorItem.item(),
             &XWordConstraint::Clue { id: ab_id }
           ))),
-          pat!(Constraint::Secondary(
-            property!(
-              &XWordColorItem.item(),
-              &XWordConstraint::Tile { pos: Pos::zero() }
-            )
-            .and(property!(&XWordColorItem.color(), 'a' as u32))
-          )),
-          pat!(Constraint::Secondary(
-            property!(
-              &XWordColorItem.item(),
-              &XWordConstraint::Tile {
-                pos: Pos { x: 1, y: 0 }
-              }
-            )
-            .and(property!(&XWordColorItem.color(), 'b' as u32))
-          )),
         ],
       ]
     );
