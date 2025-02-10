@@ -551,63 +551,53 @@ impl XWord {
         let clue_pos_constraint =
           Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
 
-        let mut build_word_constraints = |word| {
-          let (id, is_required, clue_instance_id) = word_map.get_mut(word).unwrap();
-          let id = *id;
-
-          let word_constraint = if *is_required {
-            Constraint::Primary(XWordConstraint::Clue { id })
-          } else {
-            let constraint = Constraint::Secondary(ColorItem::new(
-              XWordConstraint::Clue { id },
-              *clue_instance_id,
-            ));
-            *clue_instance_id += 1;
-            constraint
-          };
-
-          let mut constraints = vec![clue_pos_constraint.clone(), word_constraint];
-          constraints.extend(
+        frequency_map
+          .words_with_length(length)
+          .filter(|word| {
             self
               .word_letter_positions(&clue_pos, word)
-              .flat_map(|(c, pos)| {
-                Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row)
-              }),
-          );
+              .all(|(c, pos)| match self.board.get(pos) {
+                Some(XWordTile::Empty) => true,
+                Some(&XWordTile::Letter(letter)) => letter == c,
+                _ => unreachable!(),
+              })
+          })
+          .map(|word| {
+            let (id, is_required, clue_instance_id) = word_map.get_mut(word).unwrap();
+            let id = *id;
 
-          (
+            let word_constraint = if *is_required {
+              Constraint::Primary(XWordConstraint::Clue { id })
+            } else {
+              let constraint = Constraint::Secondary(ColorItem::new(
+                XWordConstraint::Clue { id },
+                *clue_instance_id,
+              ));
+              *clue_instance_id += 1;
+              constraint
+            };
+
+            let mut constraints = vec![clue_pos_constraint.clone(), word_constraint];
+            constraints.extend(
+              self
+                .word_letter_positions(&clue_pos, word)
+                .flat_map(|(c, pos)| {
+                  Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row)
+                }),
+            );
+
             (
-              XWordClueAssignment {
-                id,
-                clue_pos: clue_pos.clone(),
-              },
-              constraints,
-            ),
-            self.word_likelihood_score(word, &clue_pos, &frequency_map),
-          )
-        };
-
-        if let Some(word) =
-          self
-            .clue_letter_positions(&clue_pos, length)
-            .try_fold("".to_owned(), |mut word, pos| {
-              if let Some(&XWordTile::Letter(letter)) = self.board.get(pos) {
-                word.push(letter);
-                Some(word)
-              } else {
-                None
-              }
-            })
-        {
-          // If there is a complete word here already, add it as the only
-          // option.
-          vec![build_word_constraints(word.as_str())]
-        } else {
-          frequency_map
-            .words_with_length(length)
-            .map(build_word_constraints)
-            .collect()
-        }
+              (
+                XWordClueAssignment {
+                  id,
+                  clue_pos: clue_pos.clone(),
+                },
+                constraints,
+              ),
+              self.word_likelihood_score(word, &clue_pos, &frequency_map),
+            )
+          })
+          .collect()
       })
       .sorted_unstable_by(|(_, score1), (_, score2)| {
         score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
