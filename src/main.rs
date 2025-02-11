@@ -19,7 +19,7 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::xword::XWord;
+use xword_gen::xword::{XWord, XWordTile};
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -135,7 +135,13 @@ fn mega_grid() -> TermgameResult<Grid<bool>> {
 
 fn interactive_grid() -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(50, 50));
+  let grid = read_grid(GRID_PATH).or_else(|_| -> TermgameResult<_> {
+    Ok(InteractiveGrid::from_grid(Grid::from_vec(
+      vec![XWordTile::Empty; 50 * 51],
+      50,
+      51,
+    )?))
+  })?;
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
   let pc_uid = ev

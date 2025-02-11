@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
-use termgame::{color, draw::Draw, entity::Entity};
+use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
+  error::TermgameResult,
   grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
 };
+use xword_gen::xword::XWordTile;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Satisfaction {
@@ -15,19 +17,27 @@ enum Satisfaction {
 }
 
 pub struct InteractiveGrid {
-  grid: Grid<bool>,
+  grid: Grid<XWordTile>,
+  last_click_pos: Pos,
 }
 
 impl InteractiveGrid {
-  pub fn new(width: u32, height: u32) -> Self {
-    Self { grid: Grid::new(width, height) }
+  pub fn new(width: u32, height: u32) -> TermgameResult<Self> {
+    Ok(Self {
+      grid: Grid::from_vec(
+        vec![XWordTile::Empty; (width * height) as usize],
+        width,
+        height,
+      )?,
+      last_click_pos: Pos::zero(),
+    })
   }
 
-  pub fn from_grid(grid: Grid<bool>) -> Self {
-    Self { grid }
+  pub fn from_grid(grid: Grid<XWordTile>) -> Self {
+    Self { grid, last_click_pos: Pos::zero() }
   }
 
-  pub fn grid(&self) -> &Grid<bool> {
+  pub fn grid(&self) -> &Grid<XWordTile> {
     &self.grid
   }
 
@@ -40,7 +50,7 @@ impl InteractiveGrid {
   }
 
   fn is_free(&self, pos: Pos) -> bool {
-    self.grid.get(pos).is_some_and(|&is_free| is_free)
+    self.grid.get(pos).is_some_and(|tile| tile.available())
   }
 
   fn length_sat(length: u32) -> Satisfaction {
@@ -110,15 +120,18 @@ impl Entity for InteractiveGrid {
       let clue_num_map = self.clue_num_map();
       (0..self.grid.width() as i32).map(move |x| {
         let pos = Pos { x, y };
-        let draw = if !self.is_free(pos) {
-          Draw::new('*')
-        } else {
-          let tile = if let Some(clue_num) = clue_num_map.get(&pos) {
-            char::from_u32(((clue_num % 10) as u8 + b'0') as u32).unwrap_or('?')
-          } else {
-            '_'
-          };
-          Draw::new(tile).with_fg(sat_color(self.tile_sat(pos)))
+        let draw = match self.grid.get(pos) {
+          Some(XWordTile::Wall) => Draw::new('*'),
+          Some(&XWordTile::Letter(letter)) => Draw::new(letter),
+          Some(XWordTile::Empty) => {
+            let tile = if let Some(clue_num) = clue_num_map.get(&pos) {
+              char::from_u32(((clue_num % 10) as u8 + b'0') as u32).unwrap_or('?')
+            } else {
+              '_'
+            };
+            Draw::new(tile).with_fg(sat_color(self.tile_sat(pos)))
+          }
+          _ => unreachable!(),
         };
         (draw, Pos { x: 2 * x, y })
       })
@@ -133,8 +146,14 @@ impl Entity for InteractiveGrid {
   }
 
   fn click(&mut self, pos: Pos) -> util::error::TermgameResult {
-    if let Some(tile) = self.grid.get_mut(Pos { x: pos.x / 2, ..pos }) {
-      *tile = !*tile;
+    let grid_pos = Pos { x: pos.x / 2, ..pos };
+    self.last_click_pos = grid_pos;
+    if let Some(tile) = self.grid.get_mut(grid_pos) {
+      *tile = match tile {
+        XWordTile::Wall => XWordTile::Empty,
+        XWordTile::Empty => XWordTile::Wall,
+        XWordTile::Letter(_) => XWordTile::Empty,
+      };
     }
     Ok(())
   }
@@ -145,5 +164,17 @@ impl Entity for InteractiveGrid {
     } else {
       Ok(())
     }
+  }
+
+  fn keypress(&mut self, key: Key) -> TermgameResult {
+    if let Key::Char(letter) = key {
+      if ('a'..='z').contains(&letter) {
+        if let Some(tile) = self.grid.get_mut(self.last_click_pos) {
+          *tile = XWordTile::Letter(letter);
+        }
+      }
+    }
+
+    Ok(())
   }
 }
