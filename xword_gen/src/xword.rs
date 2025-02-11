@@ -752,6 +752,10 @@ impl XWord {
       }
     }
 
+    todo!();
+    // TODO: assign each required word to a partition weighted by partition
+    // size.
+
     for ref assignment @ (
       XWordClueAssignment {
         clue_pos: XWordCluePosition { pos, ref clue_number },
@@ -800,6 +804,11 @@ impl XWord {
             .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
         )
       })
+  }
+
+  pub fn solve_parallel(&self) -> TermgameResult<Grid<XWordTile>> {
+    // Should use tokio primitives
+    todo!();
   }
 
   pub fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> + '_ {

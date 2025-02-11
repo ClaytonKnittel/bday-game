@@ -187,9 +187,9 @@ fn show_dlx_iters() -> TermgameResult {
     // "christina",
   ];
 
-  let xword_solver = XWord::from_grid(
+  let xword_solver = XWord::from_grid_with_required(
     grid.clone(),
-    // REQUIRED.map(|str| str.to_owned()),
+    REQUIRED.map(|str| str.to_owned()),
     build_dict()?,
   )?;
   let mut x_iter = xword_solver.stepwise_board_iter();
