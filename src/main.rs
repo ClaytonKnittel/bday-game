@@ -8,7 +8,6 @@ use std::{
   collections::HashSet,
   fs::{self, File},
   io::Write,
-  iter::once,
   process::ExitCode,
 };
 
@@ -20,10 +19,7 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::{
-  dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
-  xword::{XWord, XWordTile},
-};
+use xword_gen::xword::XWord;
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -170,33 +166,7 @@ fn show_dlx_iters() -> TermgameResult {
     REQUIRED.map(|str| str.to_owned()),
     build_dict()?,
   )?;
-  let mut dlx_map = xword_solver.build_dlx_solvers();
-  let dlx_iters: Vec<_> = dlx_map
-    .into_values()
-    .map(|dlx| dlx.find_solutions_stepwise().with_names())
-    .collect();
-  let mut x_iter = once(())
-    .cycle()
-    .scan((grid, dlx_iters), |(grid, dlx_iters), _| {
-      let new_dlx_iters = vec![];
-      *grid = dlx_iters.into_iter().fold(*grid, |grid, dlx_iter| {
-        if let Some(partial_solution) = dlx_iter.next() {
-          match partial_solution {
-            StepwiseDlxIterResult::Step(solution) => {
-              xword_solver.build_grid_from_assignments(grid, solution);
-            }
-            StepwiseDlxIterResult::Solution(solution) => {
-              xword_solver.build_grid_from_assignments(grid, solution);
-            }
-          }
-          new_dlx_iters.push(dlx_iter);
-        }
-        grid
-      });
-
-      *dlx_iters = new_dlx_iters;
-      Some(&*grid)
-    });
+  let mut x_iter = xword_solver.stepwise_board_iter();
 
   let mut done = false;
   let pc_uid = ev
@@ -208,14 +178,7 @@ fn show_dlx_iters() -> TermgameResult {
 
     if !done {
       if let Some(grid) = x_iter.next() {
-        let grid = match grid {
-          StepwiseDlxIterResult::Step(grid) => grid,
-          StepwiseDlxIterResult::Solution(grid) => {
-            done = true;
-            grid
-          }
-        };
-        scene.entity_mut::<Crossword>(xword_uid)?.swap_grid(grid?);
+        scene.entity_mut::<Crossword>(xword_uid)?.swap_grid(grid);
       } else {
         done = true;
       }

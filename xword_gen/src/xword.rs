@@ -808,28 +808,36 @@ impl XWord {
       Solution(Vec<XWordClueAssignment>),
     }
 
-    let mut dlx_map = self.build_dlx_solvers();
-    let mut dlx_iters: Vec<_> = dlx_map
-      .values_mut()
-      .map(|dlx| IterOrSolution::Iter(dlx.find_solutions_stepwise().with_names()))
+    let dlx_iters: Vec<_> = self
+      .build_dlx_solvers()
+      .into_values()
+      .map(|dlx| IterOrSolution::Iter(dlx.into_solutions_stepwise().with_names()))
       .collect();
 
-    once(()).cycle().scan(dlx_iters, |dlx_iters, _| {
-      let selected_items = dlx_iters.iter_mut().flat_map(|iter| {
-        match iter {
-          IterOrSolution::Iter(iter) => {
-            if let Some(result) = iter.next() {
-              match result {
-                StepwiseDlxIterResult::Step(solution) => solution,
-                StepwiseDlxIterResult::Solution(solution) => solution,
+    once(()).cycle().scan(dlx_iters, move |dlx_iters, _| {
+      if dlx_iters
+        .iter()
+        .all(|iter| matches!(iter, IterOrSolution::Solution(_)))
+      {
+        return None;
+      }
+
+      let selected_items = dlx_iters.iter_mut().flat_map(|iter| match iter {
+        IterOrSolution::Iter(dlx_iter) => {
+          if let Some(result) = dlx_iter.next() {
+            match result {
+              StepwiseDlxIterResult::Step(solution) => solution,
+              StepwiseDlxIterResult::Solution(solution) => {
+                *iter = IterOrSolution::Solution(solution.clone());
+                solution
               }
-            } else {
-              // TODO need the solution here
-              todo!()
             }
+          } else {
+            *iter = IterOrSolution::Solution(vec![]);
+            vec![]
           }
-          IterOrSolution::Solution(solution) => solution.clone(),
         }
+        IterOrSolution::Solution(solution) => solution.clone(),
       });
       Some(
         self

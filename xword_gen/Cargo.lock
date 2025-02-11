@@ -159,7 +159,7 @@ dependencies = [
 [[package]]
 name = "dlx"
 version = "0.1.0"
-source = "git+https://github.com/ClaytonKnittel/dlx-rs.git?rev=3f69ff7d09fe7f90c3d5fbb6e86832cf93ea7daf#3f69ff7d09fe7f90c3d5fbb6e86832cf93ea7daf"
+source = "git+https://github.com/ClaytonKnittel/dlx-rs.git?rev=e3d7fe11ca2c2cb3e62b90fc265c43fc9d58b813#e3d7fe11ca2c2cb3e62b90fc265c43fc9d58b813"
 dependencies = [
  "googletest",
 ]
