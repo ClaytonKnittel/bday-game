@@ -2,7 +2,7 @@ use std::{
   cmp::Ordering,
   collections::{HashMap, HashSet},
   fmt::Display,
-  iter,
+  iter::{self, once},
 };
 
 use itertools::Itertools;
@@ -14,7 +14,7 @@ use util::{
   union_find::UnionFind,
 };
 
-use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType};
+use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueNumber {
@@ -800,6 +800,43 @@ impl XWord {
             .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
         )
       })
+  }
+
+  pub fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> + '_ {
+    enum IterOrSolution<I> {
+      Iter(I),
+      Solution(Vec<XWordClueAssignment>),
+    }
+
+    let mut dlx_map = self.build_dlx_solvers();
+    let mut dlx_iters: Vec<_> = dlx_map
+      .values_mut()
+      .map(|dlx| IterOrSolution::Iter(dlx.find_solutions_stepwise().with_names()))
+      .collect();
+
+    once(()).cycle().scan(dlx_iters, |dlx_iters, _| {
+      let selected_items = dlx_iters.iter_mut().flat_map(|iter| {
+        match iter {
+          IterOrSolution::Iter(iter) => {
+            if let Some(result) = iter.next() {
+              match result {
+                StepwiseDlxIterResult::Step(solution) => solution,
+                StepwiseDlxIterResult::Solution(solution) => solution,
+              }
+            } else {
+              // TODO need the solution here
+              todo!()
+            }
+          }
+          IterOrSolution::Solution(solution) => solution.clone(),
+        }
+      });
+      Some(
+        self
+          .build_grid_from_assignments(self.board.clone(), selected_items)
+          .unwrap(),
+      )
+    })
   }
 }
 
