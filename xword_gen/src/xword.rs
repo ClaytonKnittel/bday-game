@@ -64,15 +64,6 @@ pub enum XWordConstraint {
   },
 }
 
-impl XWordConstraint {
-  fn as_clue_number(&self) -> &XWordClueNumber {
-    match self {
-      Self::ClueNumber(clue_number) => clue_number,
-      _ => unreachable!(),
-    }
-  }
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueAssignment {
   id: u32,
@@ -363,6 +354,20 @@ impl XWord {
       .map(|entry| XWordEntry { pos: entry.pos.transpose(), ..entry })
   }
 
+  fn clue_letter_positions_unbounded<'a>(
+    &self,
+    clue_pos: &'a XWordCluePosition,
+  ) -> impl Iterator<Item = Pos> + 'a {
+    (0..).map(move |idx| {
+      clue_pos.pos
+        + if clue_pos.clue_number.is_row {
+          Diff { x: idx, y: 0 }
+        } else {
+          Diff { x: 0, y: idx }
+        }
+    })
+  }
+
   fn clue_letter_positions<'a>(
     &self,
     clue_pos: &'a XWordCluePosition,
@@ -379,14 +384,9 @@ impl XWord {
       )
     }));
 
-    (0..length as i32).map(move |idx| {
-      clue_pos.pos
-        + if clue_pos.clue_number.is_row {
-          Diff { x: idx, y: 0 }
-        } else {
-          Diff { x: 0, y: idx }
-        }
-    })
+    self
+      .clue_letter_positions_unbounded(clue_pos)
+      .take(length as usize)
   }
 
   fn word_letter_positions<'a>(
@@ -685,6 +685,30 @@ impl XWord {
     Dlx::new(vec![], word_assignments)
   }
 
+  fn find_empty_word_tile(
+    &self,
+    pos: Pos,
+    clue_number: XWordClueNumber,
+    length: u32,
+    uf: &mut UnionFind<Pos>,
+  ) -> Option<Pos> {
+    self
+      .clue_letter_positions(&XWordCluePosition { pos, clue_number }, length)
+      .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
+  }
+
+  fn find_empty_word_tile_unchecked(
+    &self,
+    pos: Pos,
+    clue_number: XWordClueNumber,
+    uf: &mut UnionFind<Pos>,
+  ) -> Option<Pos> {
+    self
+      .clue_letter_positions_unbounded(&XWordCluePosition { pos, clue_number })
+      .take_while(|&pos| self.available(pos))
+      .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
+  }
+
   fn build_partitioned_subproblems(&self) -> HashMap<Pos, ProblemParameters> {
     let mut uf = self.build_partition_uf();
 
@@ -699,13 +723,7 @@ impl XWord {
         (XWordClueNumber { number, is_row }, pos, length)
       })
     {
-      if let Some(uf_id) = self
-        .clue_letter_positions(
-          &XWordCluePosition { pos, clue_number: clue_number.clone() },
-          length,
-        )
-        .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
-      {
+      if let Some(uf_id) = self.find_empty_word_tile(pos, clue_number.clone(), length, &mut uf) {
         for pos in self.clue_letter_positions(
           &XWordCluePosition { pos, clue_number: clue_number.clone() },
           length,
@@ -741,18 +759,21 @@ impl XWord {
       }
     }
 
-    for assignment @ (
+    for ref assignment @ (
       XWordClueAssignment {
-        clue_pos: XWordCluePosition { pos, .. }, ..
+        clue_pos: XWordCluePosition { pos, ref clue_number },
+        ..
       },
       _,
     ) in self.build_word_assignments()
     {
-      subproblem_map
-        .entry(uf.find(pos))
-        .or_default()
-        .word_assignments
-        .push(assignment);
+      if let Some(pos) = self.find_empty_word_tile_unchecked(pos, clue_number.clone(), &mut uf) {
+        subproblem_map
+          .entry(uf.find(pos))
+          .or_default()
+          .word_assignments
+          .push(assignment.clone());
+      }
     }
 
     subproblem_map
