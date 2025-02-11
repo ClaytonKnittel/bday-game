@@ -678,13 +678,6 @@ impl XWord {
     Ok(answer_grid)
   }
 
-  #[deprecated]
-  pub fn build_dlx(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
-    // let constraints = self.build_constraints();
-    let word_assignments = self.build_word_assignments();
-    Dlx::new(vec![], word_assignments)
-  }
-
   fn find_empty_word_tile(
     &self,
     pos: Pos,
@@ -785,21 +778,28 @@ impl XWord {
     subproblem_map
   }
 
+  pub fn build_dlx_solvers(&self) -> HashMap<Pos, Dlx<XWordConstraint, XWordClueAssignment>> {
+    self
+      .build_partitioned_subproblems()
+      .into_iter()
+      .map(|(pos, params)| (pos, params.build_dlx()))
+      .collect()
+  }
+
   pub fn solve(&self) -> TermgameResult<Grid<XWordTile>> {
-    self.build_partitioned_subproblems().into_values().try_fold(
-      self.board.clone(),
-      |board, params| {
+    self
+      .build_dlx_solvers()
+      .into_values()
+      .try_fold(self.board.clone(), |board, mut dlx| {
         self.build_grid_from_assignments(
           board,
-          params
-            .build_dlx()
+          dlx
             .find_solutions()
             .with_names()
             .next()
             .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
         )
-      },
-    )
+      })
   }
 }
 
