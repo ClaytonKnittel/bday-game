@@ -690,7 +690,6 @@ impl XWord {
 
     // For each subproblem, forbid the use of certain constraints which are not
     // possible to obtain.
-    let mut tile_constraints = HashMap::<Pos, HashSet<_>>::new();
     let mut subproblem_map = HashMap::<Pos, ProblemParameters>::new();
     for (clue_number, pos, length) in self
       .iterate_row_clues()
@@ -711,17 +710,25 @@ impl XWord {
           &XWordCluePosition { pos, clue_number: clue_number.clone() },
           length,
         ) {
-          let constraints = tile_constraints.entry(uf_id).or_default();
+          let constraints = &mut subproblem_map.entry(uf_id).or_default().constraints;
           match self.board.get(pos) {
             Some(&XWordTile::Letter(letter)) => {
-              constraints.extend(Self::letter_tile_constraints(
-                pos,
-                letter,
-                clue_number.is_row,
-              ));
+              constraints.extend(
+                Self::letter_tile_constraints(pos, letter, clue_number.is_row)
+                  .map(XWordTileConstraint::into_constraint),
+              );
             }
             Some(&XWordTile::Empty) => {
-              constraints.extend(self.tile_constraints_for_pos(pos));
+              // Empty tiles are always intersected by a row and a col clue, we
+              // arbitrarily choose the row clue to insert into constraints (if
+              // we allowed both to, there would be duplicates).
+              if clue_number.is_row {
+                constraints.extend(
+                  self
+                    .tile_constraints_for_pos(pos)
+                    .map(XWordTileConstraint::into_constraint),
+                );
+              }
             }
             _ => unreachable!(),
           }
@@ -798,7 +805,7 @@ mod tests {
     XWordTile, NUM_TILE_BITS,
   };
 
-  use super::XWord;
+  use super::{XWord, XWordTileConstraint};
 
   #[gtest]
   fn test_empty() {
@@ -1472,6 +1479,46 @@ mod tests {
 
   #[gtest]
   fn test_build_partitioned_subproblems() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab", "bc"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let subproblems = xword.build_partitioned_subproblems();
+    assert_eq!(subproblems.len(), 1);
+    let params = subproblems.into_values().next().unwrap();
+    let constraints: HashSet<_> = params.constraints.into_iter().collect();
+
+    let expected_constraints: HashSet<_> = [false, true]
+      .into_iter()
+      .flat_map(|is_row| {
+        (0..=1).map(move |number| {
+          (
+            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+            HeaderType::Primary,
+          )
+        })
+      })
+      .chain(
+        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
+          .into_iter()
+          .flat_map(|pos| {
+            (0..NUM_TILE_BITS).map(move |bit| {
+              (
+                XWordConstraint::Tile(XWordTileConstraint { pos, bit }),
+                HeaderType::Primary,
+              )
+            })
+          }),
+      )
+      .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
+      .collect();
+
+    expect_that!(constraints, container_eq(expected_constraints));
+
     Ok(())
   }
 
