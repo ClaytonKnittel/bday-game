@@ -8,6 +8,7 @@ use std::{
   collections::HashSet,
   fs::{self, File},
   io::Write,
+  iter::once,
   process::ExitCode,
 };
 
@@ -164,20 +165,29 @@ fn show_dlx_iters() -> TermgameResult {
     // "christina",
   ];
 
-  let xword_solver =
-    XWord::from_grid_with_required(grid, REQUIRED.map(|str| str.to_owned()), build_dict()?)?;
-  let mut dlx = xword_solver.build_dlx();
-  let mut x_iter = dlx
-    .find_solutions_stepwise()
-    .with_names()
-    .map(|partial_solution| match partial_solution {
-      StepwiseDlxIterResult::Step(solution) => {
-        StepwiseDlxIterResult::Step(xword_solver.build_grid_from_assignments(solution))
-      }
-      StepwiseDlxIterResult::Solution(solution) => {
-        StepwiseDlxIterResult::Solution(xword_solver.build_grid_from_assignments(solution))
-      }
+  let xword_solver = XWord::from_grid_with_required(
+    grid.clone(),
+    REQUIRED.map(|str| str.to_owned()),
+    build_dict()?,
+  )?;
+  let mut dlx_map = xword_solver.build_dlx_solvers();
+  let mut x_iter = once(()).cycle().scan(grid, |grid, _| {
+    *grid = dlx_map.values_mut().fold(*grid, |grid, dlx| {
+      dlx.find_solutions_stepwise().with_names().for_each(
+        |partial_solution| match partial_solution {
+          StepwiseDlxIterResult::Step(solution) => {
+            xword_solver.build_grid_from_assignments(grid, solution);
+          }
+          StepwiseDlxIterResult::Solution(solution) => {
+            xword_solver.build_grid_from_assignments(grid, solution);
+          }
+        },
+      );
+      grid
     });
+
+    Some(&*grid)
+  });
 
   let mut done = false;
   let pc_uid = ev
