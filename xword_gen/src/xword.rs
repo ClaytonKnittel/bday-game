@@ -786,14 +786,9 @@ impl XWord {
   }
 
   pub fn solve(&self) -> TermgameResult<Grid<XWordTile>> {
-    let partitions = self.build_partitioned_subproblems();
-    for (pos, params) in partitions.iter() {
-      println!("Pos: {pos}");
-    }
-
-    partitions
-      .into_values()
-      .try_fold(self.board.clone(), |board, params| {
+    self.build_partitioned_subproblems().into_values().try_fold(
+      self.board.clone(),
+      |board, params| {
         self.build_grid_from_assignments(
           board,
           params
@@ -803,7 +798,8 @@ impl XWord {
             .next()
             .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
         )
-      })
+      },
+    )
   }
 }
 
@@ -1672,6 +1668,40 @@ mod tests {
         Wall,        Letter('a'),
         Letter('c'), Letter('b'),
       ], 2, 2,
+    ).unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_two_partitions() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "_Xc__
+         __aX_
+         __tX_",
+      )?,
+      [
+        "cat", "hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve();
+    assert_that!(solution, ok(anything()));
+    let solution = solution.unwrap();
+
+    use XWordTile::*;
+
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        Letter('h'), Wall,        Letter('c'), Letter('o'), Letter('g'),
+        Letter('a'), Letter('b'), Letter('a'), Wall,        Letter('u'),
+        Letter('h'), Letter('a'), Letter('t'), Wall,        Letter('y'),
+      ], 5, 3,
     ).unwrap();
     expect_eq!(solution, expected_solution);
 
