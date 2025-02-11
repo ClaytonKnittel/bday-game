@@ -103,6 +103,32 @@ const fn sunday() -> &'static str {
    ______X_______X________"
 }
 
+const fn partial_sunday() -> &'static str {
+  "________Xc______X______
+   ________Xl______X______
+   ________Xa______X______
+   ___X_____yX____X___X___
+   ____XX___t_XXXX___X____
+   ______X__o__XX____X____
+   XXX____X_n__X____X_____
+   ___X_____X______X______
+   ________X_____X_____XXX
+   _____X_______XXX_______
+   _____XX_____X______X___
+   ____X______X______X____
+   ___X______X_____XX_____
+   _______XXX_______X_____
+   XXX____X______X________
+   ______X______X_____X___
+   _____X____X____X____XXX
+   ____X___XXX_____X______
+   ____XsmellyX_____XX____
+   ___X___X____XX_____X___
+   ______X_______X________
+   ______X_______X________
+   ______X_______X________"
+}
+
 fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
@@ -146,7 +172,7 @@ fn interactive_grid() -> TermgameResult {
 fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let grid = XWord::build_grid(sunday())?;
+  let grid = XWord::build_grid(partial_sunday())?;
   // let grid = mega_grid()?;
   let xword_uid = ev
     .scene()
@@ -161,9 +187,9 @@ fn show_dlx_iters() -> TermgameResult {
     // "christina",
   ];
 
-  let xword_solver = XWord::from_grid_with_required(
+  let xword_solver = XWord::from_grid(
     grid.clone(),
-    REQUIRED.map(|str| str.to_owned()),
+    // REQUIRED.map(|str| str.to_owned()),
     build_dict()?,
   )?;
   let mut x_iter = xword_solver.stepwise_board_iter();
