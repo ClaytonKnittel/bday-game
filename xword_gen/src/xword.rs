@@ -972,44 +972,6 @@ mod tests {
     Ok(())
   }
 
-  // #[gtest]
-  // fn test_constraints() -> TermgameResult {
-  //   let xword = XWord::from_grid(
-  //     XWord::build_grid(
-  //       "__
-  //        X_",
-  //     )?,
-  //     ["ab", "bc"].into_iter().map(|str| str.to_owned()),
-  //   )?;
-
-  //   let constraints: HashSet<_> = xword.build_constraints().collect();
-
-  //   let expected_constraints: HashSet<_> = [false, true]
-  //     .into_iter()
-  //     .flat_map(|is_row| {
-  //       (0..=1).map(move |number| {
-  //         (
-  //           XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
-  //           HeaderType::Primary,
-  //         )
-  //       })
-  //     })
-  //     .chain(
-  //       [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
-  //         .into_iter()
-  //         .flat_map(|pos| {
-  //           (0..NUM_TILE_BITS)
-  //             .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
-  //         }),
-  //     )
-  //     .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
-  //     .collect();
-
-  //   expect_that!(constraints, container_eq(expected_constraints));
-
-  //   Ok(())
-  // }
-
   #[gtest]
   fn test_iter_board_entries() -> TermgameResult {
     let xword = XWord::from_grid(
