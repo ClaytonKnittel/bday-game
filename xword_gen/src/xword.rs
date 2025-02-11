@@ -702,6 +702,10 @@ impl XWord {
       .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
   }
 
+  fn assign_required_clue_partitions(&self) -> HashMap<Pos, Vec<&str>> {
+    todo!();
+  }
+
   fn build_partitioned_subproblems(&self) -> HashMap<Pos, ProblemParameters> {
     let mut uf = self.build_partition_uf();
 
@@ -752,9 +756,7 @@ impl XWord {
       }
     }
 
-    todo!();
-    // TODO: assign each required word to a partition weighted by partition
-    // size.
+    let required_clues = self.assign_required_clue_partitions();
 
     for ref assignment @ (
       XWordClueAssignment {
