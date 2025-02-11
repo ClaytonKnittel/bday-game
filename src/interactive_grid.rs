@@ -18,7 +18,8 @@ enum Satisfaction {
 
 pub struct InteractiveGrid {
   grid: Grid<XWordTile>,
-  last_click_pos: Pos,
+  cursor_pos: Pos,
+  to_right: bool,
 }
 
 impl InteractiveGrid {
@@ -29,16 +30,28 @@ impl InteractiveGrid {
         width,
         height,
       )?,
-      last_click_pos: Pos::zero(),
+      cursor_pos: Pos::zero(),
+      to_right: true,
     })
   }
 
   pub fn from_grid(grid: Grid<XWordTile>) -> Self {
-    Self { grid, last_click_pos: Pos::zero() }
+    Self {
+      grid,
+      cursor_pos: Pos::zero(),
+      to_right: true,
+    }
   }
 
   pub fn grid(&self) -> &Grid<XWordTile> {
     &self.grid
+  }
+
+  pub fn cursor_screen_pos(&self) -> Pos {
+    Pos {
+      x: self.cursor_pos.x * 2,
+      ..self.cursor_pos
+    }
   }
 
   pub fn screen_width(&self) -> u32 {
@@ -120,7 +133,7 @@ impl Entity for InteractiveGrid {
       let clue_num_map = self.clue_num_map();
       (0..self.grid.width() as i32).map(move |x| {
         let pos = Pos { x, y };
-        let draw = match self.grid.get(pos) {
+        let mut draw = match self.grid.get(pos) {
           Some(XWordTile::Wall) => Draw::new('*'),
           Some(&XWordTile::Letter(letter)) => Draw::new(letter),
           Some(XWordTile::Empty) => {
@@ -133,6 +146,14 @@ impl Entity for InteractiveGrid {
           }
           _ => unreachable!(),
         };
+
+        if pos == self.cursor_pos {
+          draw = draw
+            .with_italic()
+            .with_bold()
+            .with_fg(color::AnsiValue::grayscale(23));
+        }
+
         (draw, Pos { x: 2 * x, y })
       })
     }))
@@ -147,7 +168,7 @@ impl Entity for InteractiveGrid {
 
   fn click(&mut self, pos: Pos) -> util::error::TermgameResult {
     let grid_pos = Pos { x: pos.x / 2, ..pos };
-    self.last_click_pos = grid_pos;
+    self.cursor_pos = grid_pos;
     if let Some(tile) = self.grid.get_mut(grid_pos) {
       *tile = match tile {
         XWordTile::Wall => XWordTile::Empty,
@@ -167,13 +188,38 @@ impl Entity for InteractiveGrid {
   }
 
   fn keypress(&mut self, key: Key) -> TermgameResult {
-    if let Key::Char(letter) = key {
-      if ('a'..='z').contains(&letter) {
-        if let Some(tile) = self.grid.get_mut(self.last_click_pos) {
-          *tile = XWordTile::Letter(letter);
+    match key {
+      Key::Char(letter) => {
+        if letter.is_ascii_lowercase() {
+          if let Some(tile) = self.grid.get_mut(self.cursor_pos) {
+            if !matches!(tile, XWordTile::Wall) {
+              *tile = XWordTile::Letter(letter);
+              if self.to_right {
+                self.cursor_pos.x += 1;
+              } else {
+                self.cursor_pos.y += 1;
+              }
+            }
+          }
+        } else if letter == ' ' {
+          if self.to_right {
+            self.cursor_pos.x += 1;
+          } else {
+            self.cursor_pos.y += 1;
+          }
+        } else if letter == '\t' {
+          self.to_right = !self.to_right;
         }
       }
+      Key::Left => self.cursor_pos.x -= 1,
+      Key::Right => self.cursor_pos.x += 1,
+      Key::Up => self.cursor_pos.y -= 1,
+      Key::Down => self.cursor_pos.y += 1,
+      _ => {}
     }
+
+    self.cursor_pos.x = 0.max((self.grid.width() as i32 - 1).min(self.cursor_pos.x));
+    self.cursor_pos.y = 0.max((self.grid.height() as i32 - 1).min(self.cursor_pos.y));
 
     Ok(())
   }

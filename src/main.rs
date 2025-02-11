@@ -144,21 +144,18 @@ fn interactive_grid() -> TermgameResult {
   })?;
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
-  let pc_uid = ev
-    .scene()
-    .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
   ev.run_event_loop(|scene, window, _| {
     let width = window.width() as i32;
     let height = window.height() as i32;
 
-    let pc: &Pc = scene.entity(pc_uid)?;
     let grid: &InteractiveGrid = scene.entity(grid_uid)?;
+    let cursor_pos = grid.cursor_screen_pos();
     let camera_pos = window.camera_pos_mut();
 
-    camera_pos.x = (pc.pos().x - width / 2)
+    camera_pos.x = (cursor_pos.x - width / 2)
       .max(0)
       .min((grid.screen_width()).saturating_sub(width as u32) as i32);
-    camera_pos.y = (pc.pos().y - height / 2)
+    camera_pos.y = (cursor_pos.y - height / 2)
       .max(0)
       .min((grid.screen_height()).saturating_sub(height as u32) as i32);
 
