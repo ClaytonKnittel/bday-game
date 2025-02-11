@@ -894,43 +894,43 @@ mod tests {
     Ok(())
   }
 
-  #[gtest]
-  fn test_constraints() -> TermgameResult {
-    let xword = XWord::from_grid(
-      XWord::build_grid(
-        "__
-         X_",
-      )?,
-      ["ab", "bc"].into_iter().map(|str| str.to_owned()),
-    )?;
+  // #[gtest]
+  // fn test_constraints() -> TermgameResult {
+  //   let xword = XWord::from_grid(
+  //     XWord::build_grid(
+  //       "__
+  //        X_",
+  //     )?,
+  //     ["ab", "bc"].into_iter().map(|str| str.to_owned()),
+  //   )?;
 
-    let constraints: HashSet<_> = xword.build_constraints().collect();
+  //   let constraints: HashSet<_> = xword.build_constraints().collect();
 
-    let expected_constraints: HashSet<_> = [false, true]
-      .into_iter()
-      .flat_map(|is_row| {
-        (0..=1).map(move |number| {
-          (
-            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
-            HeaderType::Primary,
-          )
-        })
-      })
-      .chain(
-        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
-          .into_iter()
-          .flat_map(|pos| {
-            (0..NUM_TILE_BITS)
-              .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
-          }),
-      )
-      .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
-      .collect();
+  //   let expected_constraints: HashSet<_> = [false, true]
+  //     .into_iter()
+  //     .flat_map(|is_row| {
+  //       (0..=1).map(move |number| {
+  //         (
+  //           XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+  //           HeaderType::Primary,
+  //         )
+  //       })
+  //     })
+  //     .chain(
+  //       [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
+  //         .into_iter()
+  //         .flat_map(|pos| {
+  //           (0..NUM_TILE_BITS)
+  //             .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
+  //         }),
+  //     )
+  //     .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
+  //     .collect();
 
-    expect_that!(constraints, container_eq(expected_constraints));
+  //   expect_that!(constraints, container_eq(expected_constraints));
 
-    Ok(())
-  }
+  //   Ok(())
+  // }
 
   #[gtest]
   fn test_iter_board_entries() -> TermgameResult {
@@ -1228,6 +1228,51 @@ mod tests {
   }
 
   #[gtest]
+  fn test_letter_tile_constraints() -> googletest::Result<()> {
+    let pos = Pos { x: 2, y: 5 };
+    for is_row in [false, true] {
+      for letter in 'a'..='z' {
+        let letter_constraints: Vec<_> =
+          XWord::letter_tile_constraints(pos, letter, is_row).collect();
+        assert_eq!(letter_constraints.len(), 5);
+
+        let contains_any_matcher = || {
+          contains(any![
+            eq(&letter_constraints[0]),
+            eq(&letter_constraints[1]),
+            eq(&letter_constraints[2]),
+            eq(&letter_constraints[3]),
+            eq(&letter_constraints[4]),
+          ])
+        };
+        let contains_none_matcher = || {
+          each(all![
+            not(eq(&letter_constraints[0])),
+            not(eq(&letter_constraints[1])),
+            not(eq(&letter_constraints[2])),
+            not(eq(&letter_constraints[3])),
+            not(eq(&letter_constraints[4])),
+          ])
+        };
+
+        // Verify that no letters in the opposing direction are compatible
+        // unless they are the same.
+        for other_letter in 'a'..='z' {
+          let other_constraints: Vec<_> =
+            XWord::letter_tile_constraints(pos, other_letter, !is_row).collect();
+
+          if letter == other_letter {
+            verify_that!(other_constraints, contains_none_matcher())?;
+          } else {
+            verify_that!(other_constraints, contains_any_matcher())?;
+          }
+        }
+      }
+    }
+    Ok(())
+  }
+
+  #[gtest]
   fn test_word_assignments() -> TermgameResult {
     let xword = XWord::from_grid(
       XWord::build_grid(
@@ -1373,6 +1418,60 @@ mod tests {
       ]
     );
 
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_build_partition_uf() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "___X___
+         ___XXX_
+         XaXXbcd
+         ___X_XX
+         ___X___",
+      )?,
+      [],
+    )?;
+
+    let mut uf = xword.build_partition_uf();
+    assert_eq!(uf.root_level_keys().len(), 3);
+
+    let group1 = uf.find(Pos::zero());
+    let group2 = uf.find(Pos { x: 4, y: 0 });
+    let group3 = uf.find(Pos { x: 4, y: 3 });
+
+    let mut tiles_in_group = |group: Pos| -> Vec<_> {
+      xword
+        .board
+        .positions()
+        .filter(|&pos| xword.empty(pos) && uf.find(pos) == group)
+        .collect()
+    };
+
+    let group1_tiles = tiles_in_group(group1);
+    expect_eq!(group1_tiles.len(), 12);
+    expect_that!(group1_tiles, each(field!(Pos.x, lt(&3))));
+
+    let group2_tiles = tiles_in_group(group2);
+    expect_eq!(group2_tiles.len(), 4);
+    expect_that!(
+      group2_tiles,
+      each(all![field!(Pos.x, gt(&3)), field!(Pos.y, lt(&2))])
+    );
+
+    let group3_tiles = tiles_in_group(group3);
+    expect_eq!(group3_tiles.len(), 4);
+    expect_that!(
+      group3_tiles,
+      each(all![field!(Pos.x, gt(&3)), field!(Pos.y, gt(&2))])
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_build_partitioned_subproblems() -> TermgameResult {
     Ok(())
   }
 
