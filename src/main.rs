@@ -182,10 +182,10 @@ fn show_dlx_iters() -> TermgameResult {
 
   // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 24] = [
-    "clayton", "eugenia", "andrew", "jackson","matt", "bchan", "austen", "paul",
-    "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
-    "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
+  const REQUIRED: [&str; 4] = [
+    "clayton", "eugenia", "andrew", "jackson", // "matt", "bchan", "austen", "paul",
+    // "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
+    // "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
     // "christina",
   ];
 

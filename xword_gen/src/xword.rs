@@ -829,6 +829,8 @@ impl XWord {
     todo!();
   }
 
+  /// TODO: return DlxStepwiseIterResult so WithRequired stepwise iter can halt
+  /// on solution.
   fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = Grid<XWordTile>>
   where
     S: Borrow<Self>,
@@ -1016,14 +1018,14 @@ impl XWordWithRequired {
         let solution = match iter.next()? {
           StepwiseDlxIterResult::Step(solution) => solution,
           StepwiseDlxIterResult::Solution(solution) => {
-            // let xword = XWord::from_grid(
-            //   s.borrow()
-            //     .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
-            //     .ok()?,
-            //   s.borrow().bank.values().cloned(),
-            // )
-            // .ok()?;
-            // *inner = Some(Box::new(xword.into_stepwise_iter()));
+            let xword = XWord::from_grid(
+              s.borrow()
+                .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
+                .ok()?,
+              s.borrow().bank.values().cloned(),
+            )
+            .ok()?;
+            *inner = Some(Box::new(xword.into_stepwise_iter()));
             solution
           }
         };
