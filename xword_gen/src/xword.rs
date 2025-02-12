@@ -1661,9 +1661,7 @@ mod tests {
         .map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve()?;
     expect_that!(
       solution.get(Pos { x: 0, y: 0 }).cloned(),
       some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
@@ -1701,9 +1699,7 @@ mod tests {
       .map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve()?;
 
     use XWordTile::*;
 
@@ -1734,9 +1730,7 @@ mod tests {
         .map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve()?;
 
     use XWordTile::*;
 
@@ -1767,9 +1761,7 @@ mod tests {
       .map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve()?;
 
     use XWordTile::*;
 
