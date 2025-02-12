@@ -686,26 +686,36 @@ impl XWord {
     let mut partition_sizes = HashMap::<Pos, u32>::new();
     for (&id, word) in self.required_words.iter() {
       let length = word.chars().count() as u32;
-      if let Some((partition_id, _)) = word_lengths_map.iter().fold(
+      if let Some((partition_id, _, _)) = word_lengths_map.iter().fold(
         None,
-        |min_size_partition: Option<(Pos, u32)>, (&partition_id, length_map)| {
-          if length_map.get(&length).is_some_and(|&count| count > 0) {
-            let size_tuple = (
-              partition_id,
-              partition_sizes
-                .get(&partition_id)
-                .cloned()
-                .unwrap_or_default(),
-            );
-            min_size_partition
-              .map(|min_tuple| {
-                if min_tuple.1 > length {
-                  size_tuple
-                } else {
-                  min_tuple
-                }
-              })
-              .or(Some(size_tuple))
+        |min_size_partition: Option<(Pos, u32, u32)>, (&partition_id, length_map)| {
+          if let Some(available_slots) = length_map.get(&length).cloned() {
+            if available_slots > 0 {
+              let size_tuple = (
+                partition_id,
+                partition_sizes
+                  .get(&partition_id)
+                  .cloned()
+                  .unwrap_or_default(),
+                available_slots,
+              );
+              min_size_partition
+                .map(|min_tuple| {
+                  if min_tuple
+                    .1
+                    .cmp(&size_tuple.1)
+                    .then(min_tuple.2.cmp(&size_tuple.2))
+                    .is_gt()
+                  {
+                    size_tuple
+                  } else {
+                    min_tuple
+                  }
+                })
+                .or(Some(size_tuple))
+            } else {
+              min_size_partition
+            }
           } else {
             min_size_partition
           }
@@ -723,6 +733,8 @@ impl XWord {
           .push((id, word));
       }
     }
+
+    println!("{required_map:?}");
 
     required_map
   }
@@ -1786,16 +1798,14 @@ mod tests {
   fn test_two_partitions_with_required() -> TermgameResult {
     let xword = XWord::from_grid_with_required(
       XWord::build_grid(
-        "_Xc__
-         __aX_
-         __tXX",
+        "_Xc_
+         __aX
+         __tX",
       )?,
       ["ttt"].into_iter().map(|str| str.to_owned()),
-      [
-        "hat", "aba", "tat", "ba", "bt", "h", "cog", "o", "guy", "u", "y",
-      ]
-      .into_iter()
-      .map(|str| str.to_owned()),
+      ["hat", "aba", "tat", "ba", "bt", "h", "co", "o"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve()?;
@@ -1805,11 +1815,11 @@ mod tests {
     #[rustfmt::skip]
     let expected_solution = Grid::from_vec(
       vec![
-        Letter('h'), Wall,        Letter('c'), Letter('o'), Letter('g'),
-        Letter('a'), Letter('b'), Letter('a'), Wall,        Letter('u'),
-        Letter('t'), Letter('t'), Letter('t'), Wall,        Letter('y'),
-      ], 5, 3,
-    ).unwrap();
+        Letter('h'), Wall,        Letter('c'), Letter('o'),
+        Letter('a'), Letter('b'), Letter('a'), Wall,
+        Letter('t'), Letter('t'), Letter('t'), Wall,
+      ], 4, 3,
+    )?;
     expect_eq!(solution, expected_solution);
 
     Ok(())
