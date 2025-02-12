@@ -7,7 +7,7 @@ use std::{
 
 use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits};
 
 const DICT_PATH: &str = "./dict.bin";
 
