@@ -652,6 +652,7 @@ pub trait XWordTraits {
 #[derive(Clone, Debug)]
 pub struct XWord {
   board: Grid<XWordTile>,
+  // TODO hold ref to dict to prevent extra copies
   bank: HashMap<u32, String>,
 }
 
