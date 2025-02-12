@@ -1,4 +1,5 @@
 use std::{
+  borrow::Borrow,
   cmp::Ordering,
   collections::{HashMap, HashSet},
   fmt::Display,
@@ -645,6 +646,9 @@ pub trait XWordTraits {
       .solve()?
       .ok_or_else(|| TermgameError::Internal("No solution found!".to_owned()).into())
   }
+
+  fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>>;
+  fn into_stepwise_iter(self) -> impl Iterator<Item = Grid<XWordTile>>;
 }
 
 #[derive(Clone, Debug)]
@@ -827,13 +831,17 @@ impl XWord {
     todo!();
   }
 
-  pub fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> + '_ {
+  fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = Grid<XWordTile>>
+  where
+    S: Borrow<Self>,
+  {
     enum IterOrSolution<I> {
       Iter(I),
       Solution(Vec<XWordClueAssignment>),
     }
 
-    let dlx_iters: Vec<_> = self
+    let dlx_iters: Vec<_> = s
+      .borrow()
       .build_dlx_solvers()
       .into_values()
       .map(|dlx| IterOrSolution::Iter(dlx.into_solutions_stepwise().with_names()))
@@ -865,8 +873,8 @@ impl XWord {
         IterOrSolution::Solution(solution) => solution.clone(),
       });
       Some(
-        self
-          .build_grid_from_assignments(self.board().clone(), selected_items)
+        s.borrow()
+          .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
           .ok(),
       )
       .flatten()
@@ -914,6 +922,14 @@ impl XWordTraits for XWord {
         }
         Ok(None)
       })
+  }
+
+  fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
+  }
+
+  fn into_stepwise_iter(self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
   }
 }
 
@@ -977,9 +993,51 @@ impl XWordWithRequired {
     self.build_params().build_dlx()
   }
 
-  pub fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> + '_ {
-    todo!();
-    std::iter::empty()
+  fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = Grid<XWordTile>>
+  where
+    S: Borrow<Self>,
+  {
+    let stepwise_iter = s
+      .borrow()
+      .build_dlx_solver()
+      .into_solutions_stepwise()
+      .with_names();
+
+    once(()).cycle().scan(
+      (
+        stepwise_iter,
+        Option::<Box<dyn Iterator<Item = Grid<XWordTile>>>>::None,
+      ),
+      move |(iter, inner), _| -> Option<_> {
+        if let Some(inner_iter) = inner {
+          match inner_iter.next() {
+            Some(solution) => return Some(solution),
+            None => {
+              *inner = None;
+            }
+          }
+        }
+
+        let solution = match iter.next()? {
+          StepwiseDlxIterResult::Step(solution) => solution,
+          StepwiseDlxIterResult::Solution(solution) => {
+            let xword = XWord::from_grid(
+              s.borrow()
+                .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
+                .ok()?,
+              s.borrow().bank.values().cloned(),
+            )
+            .ok()?;
+            *inner = Some(Box::new(xword.into_stepwise_iter()));
+            solution
+          }
+        };
+
+        s.borrow()
+          .build_grid_from_assignments(s.borrow().board().clone(), solution)
+          .ok()
+      },
+    )
   }
 }
 
@@ -1015,19 +1073,6 @@ impl XWordInternal for XWordWithRequired {
     // Require all words to be placed in the puzzle.
     HeaderType::Primary
   }
-
-  #[cfg(test)]
-  fn testonly_word_id(&self, word: &str) -> Option<u32> {
-    self
-      .words()
-      .find_map(|(idx, bank_word)| (word == bank_word).then_some(idx))
-      .or_else(|| {
-        self
-          .bank
-          .iter()
-          .find_map(|(&idx, bank_word)| (word == bank_word).then_some(idx))
-      })
-  }
 }
 
 impl XWordTraits for XWordWithRequired {
@@ -1039,14 +1084,19 @@ impl XWordTraits for XWordWithRequired {
       .find_map(|required_words_solution| {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
-          .and_then(|board| {
-            println!("Tryin it out: {board:?}");
-            XWord::from_grid(board, self.bank.values().cloned())
-          })
+          .and_then(|board| XWord::from_grid(board, self.bank.values().cloned()))
           .and_then(|xword| xword.solve())
           .transpose()
       })
       .transpose()
+  }
+
+  fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
+  }
+
+  fn into_stepwise_iter(self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
   }
 }
 
