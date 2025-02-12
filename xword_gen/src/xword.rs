@@ -1004,10 +1004,7 @@ impl XWordWithRequired {
       .with_names();
 
     once(()).cycle().scan(
-      (
-        stepwise_iter,
-        Option::<Box<dyn Iterator<Item = Grid<XWordTile>>>>::None,
-      ),
+      (stepwise_iter, Option::<Box<dyn Iterator<Item = _>>>::None),
       move |(iter, inner), _| -> Option<_> {
         if let Some(inner_iter) = inner {
           match inner_iter.next() {

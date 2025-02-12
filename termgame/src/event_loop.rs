@@ -79,34 +79,22 @@ impl<'a> EventLoop<'a> {
           Event::Key(key) => self.scene.keypress(key)?,
           Event::Mouse(me) => match me {
             MouseEvent::Press(_, x, y) => {
-              self.scene.click(
-                camera_pos
-                  + Diff {
-                    x: x as i32 - 1,
-                    y: y as i32 - 1,
-                  },
-              )?;
+              self
+                .scene
+                .click(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
             }
             MouseEvent::Hold(x, y) => {
-              self.scene.drag(
-                camera_pos
-                  + Diff {
-                    x: x as i32 - 1,
-                    y: y as i32 - 1,
-                  },
-              )?;
+              self
+                .scene
+                .drag(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
             }
             MouseEvent::Release(x, y) => {
-              self.scene.release(
-                camera_pos
-                  + Diff {
-                    x: x as i32 - 1,
-                    y: y as i32 - 1,
-                  },
-              )?;
+              self
+                .scene
+                .release(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
             }
           },
-          data => return Err(TermgameError::Internal(format!("got unknown key {data:?}")).into()),
+          _ => {}
         }
       }
       self.window.reset();

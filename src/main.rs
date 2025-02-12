@@ -19,7 +19,7 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile, XWordWithRequired};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
 
