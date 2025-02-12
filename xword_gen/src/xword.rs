@@ -164,7 +164,7 @@ impl<'a> LetterFrequencyMap<'a> {
   }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ProblemParameters {
   constraints: Vec<(XWordConstraint, HeaderType)>,
   word_assignments: Vec<(XWordClueAssignment, Vec<Constraint<XWordConstraint>>)>,
@@ -460,8 +460,6 @@ trait XWordInternal {
           constraint
         };
 
-        let mut tile_constraint_id = 0;
-
         frequency_map
           .words_with_length(length)
           .filter(|word| {
@@ -499,10 +497,9 @@ trait XWordInternal {
                       if Self::should_fill_board() {
                         Constraint::Primary(constraint)
                       } else {
-                        let constraint =
-                          Constraint::Secondary(ColorItem::new(constraint, tile_constraint_id));
-                        tile_constraint_id += 1;
-                        constraint
+                        // Reuse word id here, since we only care about
+                        // conflicting with other words.
+                        Constraint::Secondary(ColorItem::new(constraint, id))
                       }
                     },
                   )
@@ -2176,17 +2173,17 @@ mod tests {
   fn test_required_only() -> TermgameResult {
     let xword = XWordWithRequired::from_grid(
       XWord::build_grid(
-        "_Xc_
-         __aX
-         __tX",
+        "_Xc__
+         __aXX
+         __tXX",
       )?,
-      ["dog", "got", "cog"].into_iter().map(|str| str.to_owned()),
+      ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
       [],
     )?;
 
     let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
     let got_id = xword.testonly_word_id("got").expect("word got not found");
-    let cog_id = xword.testonly_word_id("cog").expect("word cog not found");
+    let cof_id = xword.testonly_word_id("cof").expect("word cof not found");
 
     let mut solver = xword.build_dlx_solver();
     let solution = solver
@@ -2209,11 +2206,11 @@ mod tests {
           id: &got_id,
           clue_pos: pat!(XWordCluePosition {
             pos: pat!(Pos { x: &0, y: &2 }),
-            clue_number: pat!(XWordClueNumber { number: &3, is_row: &true })
+            clue_number: pat!(XWordClueNumber { number: &4, is_row: &true })
           })
         }),
         pat!(XWordClueAssignment {
-          id: &cog_id,
+          id: &cof_id,
           clue_pos: pat!(XWordCluePosition {
             pos: pat!(Pos { x: &2, y: &0 }),
             clue_number: pat!(XWordClueNumber { number: &1, is_row: &true })
