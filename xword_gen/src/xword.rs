@@ -1803,13 +1803,13 @@ mod tests {
     use XWordTile::*;
 
     #[rustfmt::skip]
-  let expected_solution = Grid::from_vec(
-    vec![
-      Letter('h'), Wall,        Letter('c'), Letter('o'), Letter('g'),
-      Letter('a'), Letter('b'), Letter('a'), Wall,        Letter('u'),
-      Letter('t'), Letter('t'), Letter('t'), Wall,        Letter('y'),
-    ], 5, 3,
-  ).unwrap();
+    let expected_solution = Grid::from_vec(
+      vec![
+        Letter('h'), Wall,        Letter('c'), Letter('o'), Letter('g'),
+        Letter('a'), Letter('b'), Letter('a'), Wall,        Letter('u'),
+        Letter('t'), Letter('t'), Letter('t'), Wall,        Letter('y'),
+      ], 5, 3,
+    ).unwrap();
     expect_eq!(solution, expected_solution);
 
     Ok(())
