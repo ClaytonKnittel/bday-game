@@ -39,12 +39,6 @@ pub struct XWordTileConstraint {
   bit: u32,
 }
 
-impl XWordTileConstraint {
-  fn into_constraint(self) -> (XWordConstraint, HeaderType) {
-    (XWordConstraint::Tile(self), HeaderType::Primary)
-  }
-}
-
 const NUM_TILE_BITS: u32 = 10;
 
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
@@ -534,13 +528,19 @@ trait XWordInternal {
   ) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
     let is_row = clue_pos.clue_number.is_row;
 
+    let header_type = if Self::should_fill_board() {
+      HeaderType::Primary
+    } else {
+      HeaderType::Secondary
+    };
+
     self
       .clue_letter_positions(clue_pos, length)
       .flat_map(move |pos| {
         match self.board().get(pos) {
           Some(&XWordTile::Letter(letter)) => Variant2::Opt1(
             Self::letter_tile_constraints(pos, letter, is_row)
-              .map(XWordTileConstraint::into_constraint),
+              .map(move |constraint| (XWordConstraint::Tile(constraint), header_type)),
           ),
           Some(&XWordTile::Empty) => {
             // Empty tiles are always intersected by a row and a col clue, we
@@ -551,7 +551,7 @@ trait XWordInternal {
                 .then(|| {
                   self
                     .tile_constraints_for_pos(pos)
-                    .map(XWordTileConstraint::into_constraint)
+                    .map(move |constraint| (XWordConstraint::Tile(constraint), header_type))
                 })
                 .into_iter()
                 .flatten(),
@@ -1054,7 +1054,7 @@ impl XWordTraits for XWordWithRequired {
 mod tests {
   #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-  use std::collections::HashSet;
+  use std::{collections::HashSet, iter::once};
 
   use dlx::{ColorItem, Constraint, HeaderType};
   use googletest::prelude::*;
@@ -1872,6 +1872,50 @@ mod tests {
           }),
       )
       .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
+      .collect();
+
+    expect_that!(constraints, container_eq(expected_constraints));
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_build_params_with_required() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab"].into_iter().map(|str| str.to_owned()),
+      ["bc"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let params = xword.build_params();
+    let constraints: HashSet<_> = params.constraints.into_iter().collect();
+
+    let expected_constraints: HashSet<_> = [false, true]
+      .into_iter()
+      .flat_map(|is_row| {
+        (0..=1).map(move |number| {
+          (
+            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+            HeaderType::Secondary,
+          )
+        })
+      })
+      .chain(
+        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
+          .into_iter()
+          .flat_map(|pos| {
+            (0..NUM_TILE_BITS).map(move |bit| {
+              (
+                XWordConstraint::Tile(XWordTileConstraint { pos, bit }),
+                HeaderType::Secondary,
+              )
+            })
+          }),
+      )
+      .chain(once((XWordConstraint::Clue { id: 0 }, HeaderType::Primary)))
       .collect();
 
     expect_that!(constraints, container_eq(expected_constraints));
