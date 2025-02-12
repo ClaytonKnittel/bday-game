@@ -19,7 +19,10 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
+use xword_gen::{
+  dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
+  xword::{XWord, XWordTile, XWordTraits, XWordWithRequired},
+};
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -173,13 +176,9 @@ fn interactive_grid() -> TermgameResult {
 }
 
 fn show_dlx_iters() -> TermgameResult {
-  let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   let grid = XWord::build_grid(partial_sunday())?;
   // let grid = mega_grid()?;
-  let xword_uid = ev
-    .scene()
-    .add_entity(Box::new(Crossword::from_grid(grid.clone())));
 
   // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
@@ -196,6 +195,11 @@ fn show_dlx_iters() -> TermgameResult {
     build_dict()?,
   )?;
   let mut x_iter = xword_solver.stepwise_board_iter();
+
+  let mut ev = EventLoop::new()?;
+  let xword_uid = ev
+    .scene()
+    .add_entity(Box::new(Crossword::from_grid(grid.clone())));
 
   let mut done = false;
   let pc_uid = ev

@@ -40,7 +40,8 @@ pub struct XWordTileConstraint {
   bit: u32,
 }
 
-const NUM_TILE_BITS: u32 = 10;
+const NUM_TILE_SELECTIONS: u32 = 5;
+const NUM_TILE_BITS: u32 = 2 * NUM_TILE_SELECTIONS;
 
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
 /// constraint per letter in the answer.
@@ -422,7 +423,7 @@ trait XWordInternal {
   ) -> impl Iterator<Item = XWordTileConstraint> {
     debug_assert!(letter.is_ascii_lowercase());
     let bits = (letter as u32) - b'a' as u32;
-    (0..5).map(move |bit_idx| XWordTileConstraint {
+    (0..NUM_TILE_SELECTIONS).map(move |bit_idx| XWordTileConstraint {
       pos,
       bit: 2 * bit_idx
         + if is_row {
@@ -1018,14 +1019,14 @@ impl XWordWithRequired {
         let solution = match iter.next()? {
           StepwiseDlxIterResult::Step(solution) => solution,
           StepwiseDlxIterResult::Solution(solution) => {
-            let xword = XWord::from_grid(
-              s.borrow()
-                .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
-                .ok()?,
-              s.borrow().bank.values().cloned(),
-            )
-            .ok()?;
-            *inner = Some(Box::new(xword.into_stepwise_iter()));
+            // let xword = XWord::from_grid(
+            //   s.borrow()
+            //     .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
+            //     .ok()?,
+            //   s.borrow().bank.values().cloned(),
+            // )
+            // .ok()?;
+            // *inner = Some(Box::new(xword.into_stepwise_iter()));
             solution
           }
         };
@@ -1035,6 +1036,17 @@ impl XWordWithRequired {
           .ok()
       },
     )
+  }
+
+  pub fn build_grid_from_assignments<I>(
+    &self,
+    answer_grid: Grid<XWordTile>,
+    iter: I,
+  ) -> TermgameResult<Grid<XWordTile>>
+  where
+    I: IntoIterator<Item = XWordClueAssignment>,
+  {
+    (XWordInternal::build_grid_from_assignments)(self, answer_grid, iter)
   }
 }
 
@@ -1103,7 +1115,7 @@ mod tests {
 
   use std::{collections::HashSet, iter::once};
 
-  use dlx::{ColorItem, Constraint, HeaderType};
+  use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType};
   use googletest::prelude::*;
   use util::{
     error::TermgameResult,
@@ -1113,7 +1125,7 @@ mod tests {
 
   use crate::xword::{
     LetterFrequencyMap, XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint,
-    XWordInternal, XWordTile, XWordTraits, XWordWithRequired, NUM_TILE_BITS,
+    XWordInternal, XWordTile, XWordTraits, XWordWithRequired, NUM_TILE_BITS, NUM_TILE_SELECTIONS,
   };
 
   use super::{XWord, XWordTileConstraint};
@@ -1514,7 +1526,7 @@ mod tests {
       for letter in 'a'..='z' {
         let letter_constraints: Vec<_> =
           XWord::letter_tile_constraints(pos, letter, is_row).collect();
-        assert_eq!(letter_constraints.len(), 5);
+        assert_eq!(letter_constraints.len(), NUM_TILE_SELECTIONS as usize);
 
         let contains_any_matcher = || {
           contains(any![
@@ -2156,6 +2168,59 @@ mod tests {
       ], 4, 3,
     )?;
     expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_only() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "_Xc_
+         __aX
+         __tX",
+      )?,
+      ["dog", "got", "cog"].into_iter().map(|str| str.to_owned()),
+      [],
+    )?;
+
+    let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
+    let got_id = xword.testonly_word_id("got").expect("word got not found");
+    let cog_id = xword.testonly_word_id("cog").expect("word cog not found");
+
+    let mut solver = xword.build_dlx_solver();
+    let solution = solver
+      .find_solutions()
+      .with_names()
+      .next()
+      .expect("No solution found");
+
+    expect_that!(
+      solution,
+      unordered_elements_are![
+        pat!(XWordClueAssignment {
+          id: &dog_id,
+          clue_pos: pat!(XWordCluePosition {
+            pos: pat!(Pos { x: &0, y: &0 }),
+            clue_number: pat!(XWordClueNumber { number: &0, is_row: &false })
+          })
+        }),
+        pat!(XWordClueAssignment {
+          id: &got_id,
+          clue_pos: pat!(XWordCluePosition {
+            pos: pat!(Pos { x: &0, y: &2 }),
+            clue_number: pat!(XWordClueNumber { number: &3, is_row: &true })
+          })
+        }),
+        pat!(XWordClueAssignment {
+          id: &cog_id,
+          clue_pos: pat!(XWordCluePosition {
+            pos: pat!(Pos { x: &2, y: &0 }),
+            clue_number: pat!(XWordClueNumber { number: &1, is_row: &true })
+          })
+        })
+      ]
+    );
 
     Ok(())
   }
