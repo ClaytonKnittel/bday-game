@@ -43,10 +43,6 @@ impl XWordTileConstraint {
   fn into_constraint(self) -> (XWordConstraint, HeaderType) {
     (XWordConstraint::Tile(self), HeaderType::Primary)
   }
-
-  fn into_item_constraint(self) -> Constraint<XWordConstraint> {
-    Constraint::Primary(XWordConstraint::Tile(self))
-  }
 }
 
 const NUM_TILE_BITS: u32 = 10;
@@ -468,6 +464,8 @@ trait XWordInternal {
           constraint
         };
 
+        let mut tile_constraint_id = 0;
+
         frequency_map
           .words_with_length(length)
           .filter(|word| {
@@ -499,8 +497,19 @@ trait XWordInternal {
               self
                 .word_letter_positions(clue_pos, word)
                 .flat_map(|(c, pos)| {
-                  Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row)
-                    .map(XWordTileConstraint::into_item_constraint)
+                  Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row).map(
+                    move |constraint| {
+                      let constraint = XWordConstraint::Tile(constraint);
+                      if Self::should_fill_board() {
+                        Constraint::Primary(constraint)
+                      } else {
+                        let constraint =
+                          Constraint::Secondary(ColorItem::new(constraint, tile_constraint_id));
+                        tile_constraint_id += 1;
+                        constraint
+                      }
+                    },
+                  )
                 }),
             );
 
@@ -1030,7 +1039,10 @@ impl XWordTraits for XWordWithRequired {
       .find_map(|required_words_solution| {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
-          .and_then(|board| XWord::from_grid(board, self.bank.values().cloned()))
+          .and_then(|board| {
+            println!("Tryin it out: {board:?}");
+            XWord::from_grid(board, self.bank.values().cloned())
+          })
           .and_then(|xword| xword.solve())
           .transpose()
       })
@@ -1532,6 +1544,18 @@ mod tests {
               XWordConstraint::Clue { id: ab_id },
               0
             ))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &0, y: &0 }),
+                bit: anything()
+              }
+            ))))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              }
+            )))))
           ]
         ),
         (
@@ -1550,6 +1574,18 @@ mod tests {
               XWordConstraint::Clue { id: ab_id },
               1
             ))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              }
+            ))))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &1 }),
+                bit: anything()
+              }
+            )))))
           ]
         ),
         (
@@ -1632,6 +1668,20 @@ mod tests {
             pat!(Constraint::Primary(pat!(XWordConstraint::Clue {
               id: &ab_id
             }))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &0, y: &0 }),
+                bit: anything()
+              })))
+            ))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              })))
+            ))),
           ]
         ),
         (
@@ -1653,6 +1703,20 @@ mod tests {
             pat!(Constraint::Primary(pat!(XWordConstraint::Clue {
               id: &ab_id
             }))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              })))
+            ))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &1 }),
+                bit: anything()
+              })))
+            ))),
           ]
         ),
       ]
