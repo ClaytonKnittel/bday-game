@@ -2208,7 +2208,7 @@ mod tests {
           id: &got_id,
           clue_pos: pat!(XWordCluePosition {
             pos: pat!(Pos { x: &0, y: &2 }),
-            clue_number: pat!(XWordClueNumber { number: &4, is_row: &true })
+            clue_number: pat!(XWordClueNumber { number: &3, is_row: &true })
           })
         }),
         pat!(XWordClueAssignment {
