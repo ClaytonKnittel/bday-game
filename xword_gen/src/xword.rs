@@ -16,13 +16,13 @@ use util::{
 
 use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueNumber {
   number: u32,
   is_row: bool,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordCluePosition {
   pos: Pos,
   clue_number: XWordClueNumber,
@@ -515,29 +515,40 @@ impl XWord {
 
   fn build_word_assignments(
     &self,
+    required_words: &Vec<(u32, &'_ str)>,
+    partition_id: Pos,
+    uf: &mut UnionFind<Pos>,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let frequency_map = LetterFrequencyMap::from_words(
-      self
-        .required_words
-        .values()
-        .chain(self.bank.values())
-        .map(|str| str.as_str()),
+      required_words
+        .iter()
+        .map(|(_, str)| *str)
+        .chain(self.bank.values().map(|str| str.as_str())),
     );
-    let mut word_map: HashMap<_, _> = self
-      .required_words
+    let mut word_map: HashMap<_, _> = required_words
       .iter()
-      .map(|(id, word)| (id, word, true))
-      .chain(self.bank.iter().map(|(id, word)| (id, word, false)))
-      .map(|(&id, word, is_required)| (word.as_str(), (id, is_required, 0)))
+      .map(|(id, word)| (id, *word, true))
+      .chain(
+        self
+          .bank
+          .iter()
+          .map(|(id, word)| (id, word.as_str(), false)),
+      )
+      .map(|(&id, word, is_required)| (word, (id, is_required, 0)))
       .collect();
 
     // All constraints are grouped by board entry, and within each category
     // sorted by a "fitness" score of the clue in that position.
     self
       .iter_board_entries()
+      .filter(|(clue_pos, length)| {
+        self
+          .find_empty_word_tile(clue_pos.pos, clue_pos.clue_number, *length, uf)
+          .is_some_and(|empty_pos| uf.find(empty_pos) == partition_id)
+      })
       .flat_map(move |(clue_pos, length)| -> Vec<_> {
         let clue_pos_constraint =
-          Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
+          Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number));
 
         frequency_map
           .words_with_length(length)
@@ -576,10 +587,7 @@ impl XWord {
             );
 
             (
-              (
-                XWordClueAssignment { id, clue_pos: clue_pos.clone() },
-                constraints,
-              ),
+              (XWordClueAssignment { id, clue_pos }, constraints),
               self.word_likelihood_score(word, &clue_pos, &frequency_map),
             )
           })
@@ -589,6 +597,28 @@ impl XWord {
         score2.partial_cmp(score1).unwrap_or(Ordering::Equal)
       })
       .map(|(constraints, _)| constraints)
+  }
+
+  fn build_partitioned_word_assignments<'a>(
+    &'a self,
+    required_words: &'a HashMap<Pos, Vec<(u32, &'a str)>>,
+    uf: &'a mut UnionFind<Pos>,
+  ) -> impl Iterator<
+    Item = (
+      Pos,
+      impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + 'a,
+    ),
+  > + 'a {
+    uf.root_level_keys().into_iter().map(|partition_id| {
+      (
+        partition_id,
+        self.build_word_assignments(
+          required_words.get(&partition_id).unwrap_or(&vec![]),
+          partition_id,
+          uf,
+        ),
+      )
+    })
   }
 
   fn build_partition_uf(&self) -> UnionFind<Pos> {
@@ -636,6 +666,158 @@ impl XWord {
     uf
   }
 
+  fn find_empty_word_tile(
+    &self,
+    pos: Pos,
+    clue_number: XWordClueNumber,
+    length: u32,
+    uf: &mut UnionFind<Pos>,
+  ) -> Option<Pos> {
+    self
+      .clue_letter_positions(&XWordCluePosition { pos, clue_number }, length)
+      .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
+  }
+
+  fn assign_required_clue_partitions(
+    &self,
+    mut word_lengths_map: HashMap<Pos, HashMap<u32, u32>>,
+  ) -> HashMap<Pos, Vec<(u32, &'_ str)>> {
+    let mut required_map = HashMap::<Pos, Vec<(u32, &str)>>::new();
+    let mut partition_sizes = HashMap::<Pos, u32>::new();
+    for (&id, word) in self.required_words.iter() {
+      let length = word.chars().count() as u32;
+      if let Some((partition_id, _)) = word_lengths_map.iter().fold(
+        None,
+        |min_size_partition: Option<(Pos, u32)>, (&partition_id, length_map)| {
+          if length_map.get(&length).is_some_and(|&count| count > 0) {
+            let size_tuple = (partition_id, length);
+            min_size_partition
+              .map(|min_tuple| {
+                if min_tuple.1 > length {
+                  size_tuple
+                } else {
+                  min_tuple
+                }
+              })
+              .or(Some(size_tuple))
+          } else {
+            min_size_partition
+          }
+        },
+      ) {
+        *word_lengths_map
+          .entry(partition_id)
+          .or_default()
+          .entry(length)
+          .or_default() -= 1;
+        *partition_sizes.entry(partition_id).or_default() += 1;
+        required_map
+          .entry(partition_id)
+          .or_default()
+          .push((id, word));
+      }
+    }
+
+    required_map
+  }
+
+  fn build_partitioned_subproblems(&self) -> HashMap<Pos, ProblemParameters> {
+    let mut uf = self.build_partition_uf();
+
+    // For each subproblem, forbid the use of certain constraints which are not
+    // possible to obtain.
+    let mut subproblem_map = HashMap::<Pos, ProblemParameters>::new();
+    // This is a map from
+    // partition_id -> {map of lengths of clues to count of occurrences of clues of that length}
+    let mut word_lengths_map = HashMap::<Pos, HashMap<u32, u32>>::new();
+    for (clue_number, pos, length) in self
+      .iterate_row_clues()
+      .map(|entry| (entry, true))
+      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
+      .map(|(XWordEntry { number, pos, length }, is_row)| {
+        (XWordClueNumber { number, is_row }, pos, length)
+      })
+    {
+      if let Some(uf_id) = self.find_empty_word_tile(pos, clue_number, length, &mut uf) {
+        *word_lengths_map
+          .entry(uf_id)
+          .or_default()
+          .entry(length)
+          .or_default() += 1;
+
+        for pos in self.clue_letter_positions(&XWordCluePosition { pos, clue_number }, length) {
+          let constraints = &mut subproblem_map.entry(uf_id).or_default().constraints;
+          match self.board.get(pos) {
+            Some(&XWordTile::Letter(letter)) => {
+              constraints.extend(
+                Self::letter_tile_constraints(pos, letter, clue_number.is_row)
+                  .map(XWordTileConstraint::into_constraint),
+              );
+            }
+            Some(&XWordTile::Empty) => {
+              // Empty tiles are always intersected by a row and a col clue, we
+              // arbitrarily choose the row clue to insert into constraints (if
+              // we allowed both to, there would be duplicates).
+              if clue_number.is_row {
+                constraints.extend(
+                  self
+                    .tile_constraints_for_pos(pos)
+                    .map(XWordTileConstraint::into_constraint),
+                );
+              }
+            }
+            _ => unreachable!(),
+          }
+        }
+
+        subproblem_map.entry(uf_id).or_default().constraints.push((
+          XWordConstraint::ClueNumber(clue_number),
+          HeaderType::Primary,
+        ));
+      }
+    }
+
+    let required_clues = self.assign_required_clue_partitions(word_lengths_map);
+    for (partition_id, assignments) in
+      self.build_partitioned_word_assignments(&required_clues, &mut uf)
+    {
+      let subproblem = subproblem_map.entry(partition_id).or_default();
+      subproblem.word_assignments.extend(assignments);
+    }
+
+    subproblem_map
+      .values_mut()
+      .for_each(|ProblemParameters { constraints, .. }| {
+        constraints.extend(self.build_clue_constraints());
+      });
+
+    subproblem_map
+  }
+
+  pub fn build_dlx_solvers(&self) -> HashMap<Pos, Dlx<XWordConstraint, XWordClueAssignment>> {
+    self
+      .build_partitioned_subproblems()
+      .into_iter()
+      .map(|(pos, params)| (pos, params.build_dlx()))
+      .collect()
+  }
+
+  pub fn solve(&self) -> TermgameResult<Grid<XWordTile>> {
+    self
+      .build_dlx_solvers()
+      .into_values()
+      .try_fold(self.board.clone(), |board, mut dlx| {
+        self.build_grid_from_assignments(
+          board,
+          dlx
+            .find_solutions()
+            .with_names()
+            .next()
+            .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
+        )
+      })
+  }
+
   pub fn build_grid_from_assignments<I>(
     &self,
     mut answer_grid: Grid<XWordTile>,
@@ -676,136 +858,6 @@ impl XWord {
     }
 
     Ok(answer_grid)
-  }
-
-  fn find_empty_word_tile(
-    &self,
-    pos: Pos,
-    clue_number: XWordClueNumber,
-    length: u32,
-    uf: &mut UnionFind<Pos>,
-  ) -> Option<Pos> {
-    self
-      .clue_letter_positions(&XWordCluePosition { pos, clue_number }, length)
-      .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
-  }
-
-  fn find_empty_word_tile_unchecked(
-    &self,
-    pos: Pos,
-    clue_number: XWordClueNumber,
-    uf: &mut UnionFind<Pos>,
-  ) -> Option<Pos> {
-    self
-      .clue_letter_positions_unbounded(&XWordCluePosition { pos, clue_number })
-      .take_while(|&pos| self.available(pos))
-      .find_map(|pos| self.empty(pos).then(|| uf.find(pos)))
-  }
-
-  fn assign_required_clue_partitions(&self) -> HashMap<Pos, Vec<&str>> {
-    todo!();
-  }
-
-  fn build_partitioned_subproblems(&self) -> HashMap<Pos, ProblemParameters> {
-    let mut uf = self.build_partition_uf();
-
-    // For each subproblem, forbid the use of certain constraints which are not
-    // possible to obtain.
-    let mut subproblem_map = HashMap::<Pos, ProblemParameters>::new();
-    for (clue_number, pos, length) in self
-      .iterate_row_clues()
-      .map(|entry| (entry, true))
-      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
-      .map(|(XWordEntry { number, pos, length }, is_row)| {
-        (XWordClueNumber { number, is_row }, pos, length)
-      })
-    {
-      if let Some(uf_id) = self.find_empty_word_tile(pos, clue_number.clone(), length, &mut uf) {
-        for pos in self.clue_letter_positions(
-          &XWordCluePosition { pos, clue_number: clue_number.clone() },
-          length,
-        ) {
-          let constraints = &mut subproblem_map.entry(uf_id).or_default().constraints;
-          match self.board.get(pos) {
-            Some(&XWordTile::Letter(letter)) => {
-              constraints.extend(
-                Self::letter_tile_constraints(pos, letter, clue_number.is_row)
-                  .map(XWordTileConstraint::into_constraint),
-              );
-            }
-            Some(&XWordTile::Empty) => {
-              // Empty tiles are always intersected by a row and a col clue, we
-              // arbitrarily choose the row clue to insert into constraints (if
-              // we allowed both to, there would be duplicates).
-              if clue_number.is_row {
-                constraints.extend(
-                  self
-                    .tile_constraints_for_pos(pos)
-                    .map(XWordTileConstraint::into_constraint),
-                );
-              }
-            }
-            _ => unreachable!(),
-          }
-        }
-
-        subproblem_map.entry(uf_id).or_default().constraints.push((
-          XWordConstraint::ClueNumber(clue_number),
-          HeaderType::Primary,
-        ));
-      }
-    }
-
-    let required_clues = self.assign_required_clue_partitions();
-
-    for ref assignment @ (
-      XWordClueAssignment {
-        clue_pos: XWordCluePosition { pos, ref clue_number },
-        ..
-      },
-      _,
-    ) in self.build_word_assignments()
-    {
-      if let Some(pos) = self.find_empty_word_tile_unchecked(pos, clue_number.clone(), &mut uf) {
-        subproblem_map
-          .entry(uf.find(pos))
-          .or_default()
-          .word_assignments
-          .push(assignment.clone());
-      }
-    }
-
-    subproblem_map
-      .values_mut()
-      .for_each(|ProblemParameters { constraints, .. }| {
-        constraints.extend(self.build_clue_constraints());
-      });
-
-    subproblem_map
-  }
-
-  pub fn build_dlx_solvers(&self) -> HashMap<Pos, Dlx<XWordConstraint, XWordClueAssignment>> {
-    self
-      .build_partitioned_subproblems()
-      .into_iter()
-      .map(|(pos, params)| (pos, params.build_dlx()))
-      .collect()
-  }
-
-  pub fn solve(&self) -> TermgameResult<Grid<XWordTile>> {
-    self
-      .build_dlx_solvers()
-      .into_values()
-      .try_fold(self.board.clone(), |board, mut dlx| {
-        self.build_grid_from_assignments(
-          board,
-          dlx
-            .find_solutions()
-            .with_names()
-            .next()
-            .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
-        )
-      })
   }
 
   pub fn solve_parallel(&self) -> TermgameResult<Grid<XWordTile>> {
@@ -1327,7 +1379,11 @@ mod tests {
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let c_id = xword.testonly_word_id("c").expect("word c not found");
 
-    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+    let mut uf = xword.build_partition_uf();
+    let partition_id = uf.find(Pos::zero());
+    let word_assignments: Vec<_> = xword
+      .build_word_assignments(&vec![], partition_id, &mut uf)
+      .collect();
     expect_that!(
       word_assignments,
       unordered_elements_are![
@@ -1422,7 +1478,11 @@ mod tests {
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let ca_id = xword.testonly_word_id("ca").expect("word ca not found");
 
-    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+    let mut uf = xword.build_partition_uf();
+    let partition_id = uf.find(Pos::zero());
+    let word_assignments: Vec<_> = xword
+      .build_word_assignments(&vec![], partition_id, &mut uf)
+      .collect();
 
     let first_row_assignments: Vec<_> = word_assignments
       .iter()
@@ -1669,7 +1729,7 @@ mod tests {
         "Xa
          _b",
       )?,
-      ["a", "c", "aa", "cb", "ab"]
+      ["a", "xa", "x", "c", "aa", "cb"]
         .into_iter()
         .map(|str| str.to_owned()),
     )?;
