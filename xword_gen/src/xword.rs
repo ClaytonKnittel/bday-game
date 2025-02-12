@@ -690,7 +690,13 @@ impl XWord {
         None,
         |min_size_partition: Option<(Pos, u32)>, (&partition_id, length_map)| {
           if length_map.get(&length).is_some_and(|&count| count > 0) {
-            let size_tuple = (partition_id, length);
+            let size_tuple = (
+              partition_id,
+              partition_sizes
+                .get(&partition_id)
+                .cloned()
+                .unwrap_or_default(),
+            );
             min_size_partition
               .map(|min_tuple| {
                 if min_tuple.1 > length {
@@ -1754,11 +1760,9 @@ mod tests {
          __aX_
          __tX_",
       )?,
-      [
-        "cat", "hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y",
-      ]
-      .into_iter()
-      .map(|str| str.to_owned()),
+      ["hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve()?;
@@ -1773,6 +1777,39 @@ mod tests {
         Letter('h'), Letter('a'), Letter('t'), Wall,        Letter('y'),
       ], 5, 3,
     ).unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_two_partitions_with_required() -> TermgameResult {
+    let xword = XWord::from_grid_with_required(
+      XWord::build_grid(
+        "_Xc__
+         __aX_
+         __tXX",
+      )?,
+      ["ttt"].into_iter().map(|str| str.to_owned()),
+      [
+        "hat", "aba", "tat", "ba", "bt", "h", "cog", "o", "guy", "u", "y",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve()?;
+
+    use XWordTile::*;
+
+    #[rustfmt::skip]
+  let expected_solution = Grid::from_vec(
+    vec![
+      Letter('h'), Wall,        Letter('c'), Letter('o'), Letter('g'),
+      Letter('a'), Letter('b'), Letter('a'), Wall,        Letter('u'),
+      Letter('t'), Letter('t'), Letter('t'), Wall,        Letter('y'),
+    ], 5, 3,
+  ).unwrap();
     expect_eq!(solution, expected_solution);
 
     Ok(())
