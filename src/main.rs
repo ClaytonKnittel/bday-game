@@ -19,7 +19,7 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile};
+use xword_gen::xword::{XWord, XWordTile, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -190,7 +190,7 @@ fn show_dlx_iters() -> TermgameResult {
     // "christina",
   ];
 
-  let xword_solver = XWord::from_grid_with_required(
+  let xword_solver = XWordWithRequired::from_grid(
     grid.clone(),
     REQUIRED.map(|str| str.to_owned()),
     build_dict()?,

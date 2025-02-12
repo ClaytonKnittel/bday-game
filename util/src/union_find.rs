@@ -63,10 +63,7 @@ where
       })
       .collect();
     let num_groups = elements.len();
-    Self {
-      elements,
-      num_groups,
-    }
+    Self { elements, num_groups }
   }
 
   pub fn keys(&self) -> impl Iterator<Item = &K> {
@@ -103,6 +100,11 @@ where
   /// Returns the parent key for this key.
   pub fn find(&mut self, key: K) -> K {
     self.get_root_mut(key)
+  }
+
+  /// Returns the parent key for this key.
+  pub fn find_immut(&self, key: K) -> K {
+    self.get_root(key)
   }
 
   pub fn metadata<T>(&self, key: T) -> &M
