@@ -113,7 +113,7 @@ fn mega() -> TermgameResult<Grid<XWordTile>> {
 
 fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   let dict = read_dict()?;
-  let words: Vec<_> = dict.top_n_words(180_000);
+  let words: Vec<_> = dict.top_n_words(150_000);
 
   #[rustfmt::skip]
   const REQUIRED: [&str; 1] = [
@@ -132,8 +132,8 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
     words.into_iter().map(|str| str.to_owned()),
   )?;
 
-  xword.list();
-  return Ok(());
+  // xword.list();
+  // return Ok(());
 
   let guard = pprof::ProfilerGuardBuilder::default()
     .frequency(1000)

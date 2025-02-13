@@ -46,7 +46,7 @@ fn read_dict() -> TermgameResult<XWordDict> {
 fn build_dict() -> TermgameResult<HashSet<String>> {
   Ok(
     read_dict()?
-      .top_n_words(180_000)
+      .top_n_words(150_000)
       .into_iter()
       .map(|str| str.to_owned())
       .collect(),
