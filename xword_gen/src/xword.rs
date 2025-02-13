@@ -579,9 +579,10 @@ trait XWordInternal {
               );
             }
 
-            Some((
+            let likelihood_score = self.word_likelihood_score(word, clue_pos, &frequency_map);
+            (likelihood_score != 0.).then_some((
               (XWordClueAssignment { id, clue_pos }, constraints),
-              self.word_likelihood_score(word, clue_pos, &frequency_map),
+              likelihood_score,
             ))
           })
           .collect()
@@ -936,14 +937,14 @@ where
 
     let done = Arc::new(Mutex::new(false));
 
-    // println!("Spawning");
+    println!("Spawning");
     let join_handles = self
       .build_dlx_solvers()
-      .into_values()
-      .map(|mut dlx| {
+      .into_iter()
+      .map(|(partition_id, mut dlx)| {
         let done = done.clone();
         thread::spawn(move || {
-          // println!("Spawning guy");
+          println!("Spawning {partition_id}");
           if let Some(solution) =
             dlx
               .find_solutions_stepwise()
@@ -955,13 +956,17 @@ where
 
                 match partial_soln {
                   StepwiseDlxIterResult::Step(_) => None,
-                  StepwiseDlxIterResult::Solution(solution) => Some(Some(solution)),
+                  StepwiseDlxIterResult::Solution(solution) => {
+                    println!("Guy {partition_id} is solved!");
+                    Some(Some(solution))
+                  }
                 }
               })
           {
             solution
           } else {
             *done.lock().ok()? = true;
+            println!("Guy {partition_id} has no solution");
             None
           }
         })
@@ -977,9 +982,9 @@ where
       .try_fold(Some(self.board().clone()), |board, result| {
         if let Some(board) = board {
           if let Some(solution) = result {
-            // println!("Solution!");
+            println!("Solution!");
             let grid = self.build_grid_from_assignments(board, solution)?;
-            // println!("{}", grid);
+            println!("{}", grid);
             return Ok(Some(grid));
           }
         }
