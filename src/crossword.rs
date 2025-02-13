@@ -21,6 +21,10 @@ pub struct Crossword {
 }
 
 impl Crossword {
+  fn char_display(c: char) -> char {
+    c.to_ascii_uppercase()
+  }
+
   fn xscale(&self) -> i32 {
     match self.view {
       CrosswordView::Expanded => 4,
@@ -188,27 +192,41 @@ impl Crossword {
                   let grid_pos = Pos { x, y };
                   let letter = self.grid.get(grid_pos)?.clone();
 
+                  let mut fg = col;
+
                   let tile = if dx == 0 && dy == 0 {
                     self.cross_at(grid_pos)
                   } else if dx == 0 {
                     self.v_bar_at(grid_pos)
                   } else if dy == 0 {
                     self.h_bar_at(grid_pos)
-                  } else if dx == self.xscale() / 2 && dy == self.yscale() / 2 {
-                    match letter {
-                      XWordTile::Letter(c) => c,
-                      XWordTile::Empty => ' ',
-                      XWordTile::Wall => '\u{2573}',
-                    }
                   } else {
-                    ' '
+                    match letter {
+                      XWordTile::Letter(c) => {
+                        if dx == self.xscale() / 2 && dy == self.yscale() / 2 {
+                          Self::char_display(c)
+                        } else {
+                          ' '
+                        }
+                      }
+                      XWordTile::Empty => ' ',
+                      XWordTile::Wall => {
+                        fg = color::AnsiValue::grayscale(16);
+                        if dx == 1 {
+                          // ▐
+                          '\u{2590}'
+                        } else if dx == 2 {
+                          // █
+                          '\u{2588}'
+                        } else {
+                          // ▋
+                          '\u{258B}'
+                        }
+                      }
+                    }
                   };
 
-                  let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
-                  if matches!(letter, XWordTile::Wall) && dx != 0 && dy != 0 {
-                    draw = draw.with_bold().with_fg(color::AnsiValue::grayscale(22));
-                  }
-
+                  let draw = Draw::new(tile).with_fg(fg).with_z(Z_IDX);
                   Some((draw, pos))
                 })
               })
@@ -275,7 +293,7 @@ impl Crossword {
         let pos = Pos { x: x * 2, y };
 
         let tile = match self.grid.get(Pos { x, y }) {
-          Some(&XWordTile::Letter(c)) => c,
+          Some(&XWordTile::Letter(c)) => Self::char_display(c),
           Some(XWordTile::Wall) => 'X',
           Some(XWordTile::Empty) => '_',
           None => unreachable!(),
