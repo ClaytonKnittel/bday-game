@@ -169,19 +169,27 @@ fn show_dlx_iters() -> TermgameResult {
   let grid = mega_grid()?;
 
   // const REQUIRED: [&str; 0] = [];
+  // #[rustfmt::skip]
+  // const REQUIRED: [&str; 25] = [
+  //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul",
+  //   "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
+  //   "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
+  //   "christina",
+  // ];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 25] = [
-    "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul",
-    "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
-    "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
-    "christina",
+  const REQUIRED: [&str; 21] = [
+    "clayton", "eugenia", "andrew", "jackson", "matt", "austen", "paul", "kevin",
+    "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
+    "cooper", "jessica", "kathy", "christina", // "bchan", "kmoney", "sruthi", "laney",
   ];
 
-  let xword_solver = XWordWithRequired::from_grid(
-    grid.clone(),
-    REQUIRED.map(|str| str.to_owned()),
-    build_dict()?,
-  )?;
+  let mut dict = build_dict()?;
+  for &required_word in REQUIRED.iter() {
+    dict.insert(required_word.to_owned());
+  }
+
+  let xword_solver =
+    XWordWithRequired::from_grid(grid.clone(), REQUIRED.map(|str| str.to_owned()), dict)?;
   let mut x_iter = xword_solver.stepwise_board_iter();
 
   let mut ev = EventLoop::new()?;

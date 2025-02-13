@@ -932,7 +932,9 @@ where
       .all_prefilled_words()
       .all(|word| self.bank.borrow().has(&word))
     {
-      return Ok(None);
+      return Err(
+        TermgameError::Internal("Not all prefilled words are in dictionary.".to_owned()).into(),
+      );
     }
 
     let done = Arc::new(Mutex::new(false));
@@ -982,9 +984,7 @@ where
       .try_fold(Some(self.board().clone()), |board, result| {
         if let Some(board) = board {
           if let Some(solution) = result {
-            println!("Solution!");
             let grid = self.build_grid_from_assignments(board, solution)?;
-            println!("{}", grid);
             return Ok(Some(grid));
           }
         }
@@ -1085,7 +1085,9 @@ where
       .all_prefilled_words()
       .all(|word| self.bank.borrow().has(&word))
     {
-      return Ok(None);
+      return Err(
+        TermgameError::Internal("Not all prefilled words are in dictionary.".to_owned()).into(),
+      );
     }
 
     self
@@ -1206,17 +1208,6 @@ impl XWordWithRequired {
           .ok()
       },
     )
-  }
-
-  pub fn build_grid_from_assignments<I>(
-    &self,
-    answer_grid: Grid<XWordTile>,
-    iter: I,
-  ) -> TermgameResult<Grid<XWordTile>>
-  where
-    I: IntoIterator<Item = XWordClueAssignment>,
-  {
-    (XWordInternal::build_grid_from_assignments)(self, answer_grid, iter)
   }
 }
 

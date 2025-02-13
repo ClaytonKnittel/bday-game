@@ -113,19 +113,22 @@ fn mega() -> TermgameResult<Grid<XWordTile>> {
 
 fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   let dict = read_dict()?;
-  let words: Vec<_> = dict.top_n_words(200_000);
+  let mut words: Vec<_> = dict.top_n_words(200_000);
 
   // #[rustfmt::skip]
   // const REQUIRED: [&str; 1] = [
   //   "clayton",
   // ];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 21] = [
+  const REQUIRED: [&str; 25] = [
     "clayton", "eugenia", "andrew", "jackson", "matt", "austen", "paul", "kevin",
     "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-    "cooper", "jessica", "kathy", "christina",
-    // "bchan", "kmoney", "sruthi", "laney",
+    "cooper", "jessica", "kathy", "christina", "bchan", "kmoney", "sruthi", "laney",
   ];
+
+  for &required_word in REQUIRED.iter() {
+    words.push(required_word);
+  }
 
   let xword = XWordWithRequired::from_grid(
     grid,
