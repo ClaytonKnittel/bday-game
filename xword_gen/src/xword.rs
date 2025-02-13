@@ -793,7 +793,7 @@ where
 
   /// TODO: return DlxStepwiseIterResult so WithRequired stepwise iter can halt
   /// on solution.
-  fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = Grid<XWordTile>>
+  fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = StepwiseDlxIterResult<Grid<XWordTile>>>
   where
     S: Borrow<Self>,
   {
@@ -809,38 +809,41 @@ where
       .map(|dlx| IterOrSolution::Iter(dlx.into_solutions_stepwise().with_names()))
       .collect();
 
-    once(()).cycle().scan(dlx_iters, move |dlx_iters, _| {
-      if dlx_iters
-        .iter()
-        .all(|iter| matches!(iter, IterOrSolution::Solution(_)))
-      {
-        return None;
-      }
-
-      let selected_items = dlx_iters.iter_mut().flat_map(|iter| match iter {
-        IterOrSolution::Iter(dlx_iter) => {
-          if let Some(result) = dlx_iter.next() {
-            match result {
-              StepwiseDlxIterResult::Step(solution) => solution,
-              StepwiseDlxIterResult::Solution(solution) => {
-                *iter = IterOrSolution::Solution(solution.clone());
-                solution
-              }
-            }
-          } else {
-            *iter = IterOrSolution::Solution(vec![]);
-            vec![]
-          }
+    once(())
+      .cycle()
+      .scan((dlx_iters, true), move |(dlx_iters, all_solved), _| {
+        if dlx_iters
+          .iter()
+          .all(|iter| matches!(iter, IterOrSolution::Solution(_)))
+        {
+          return None;
         }
-        IterOrSolution::Solution(solution) => solution.clone(),
-      });
-      Some(
-        s.borrow()
-          .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
-          .ok(),
-      )
-      .flatten()
-    })
+
+        let selected_items = dlx_iters.iter_mut().flat_map(|iter| match iter {
+          IterOrSolution::Iter(dlx_iter) => {
+            if let Some(result) = dlx_iter.next() {
+              match result {
+                StepwiseDlxIterResult::Step(solution) => solution,
+                StepwiseDlxIterResult::Solution(solution) => {
+                  *iter = IterOrSolution::Solution(solution.clone());
+                  solution
+                }
+              }
+            } else {
+              *iter = IterOrSolution::Solution(vec![]);
+              *all_solved = false;
+              vec![]
+            }
+          }
+          IterOrSolution::Solution(solution) => solution.clone(),
+        });
+        Some(
+          s.borrow()
+            .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
+            .ok(),
+        )
+        .flatten()
+      })
   }
 }
 
@@ -997,17 +1000,6 @@ impl XWordWithRequired {
           .ok()
       },
     )
-  }
-
-  pub fn build_grid_from_assignments<I>(
-    &self,
-    answer_grid: Grid<XWordTile>,
-    iter: I,
-  ) -> TermgameResult<Grid<XWordTile>>
-  where
-    I: IntoIterator<Item = XWordClueAssignment>,
-  {
-    (XWordInternal::build_grid_from_assignments)(self, answer_grid, iter)
   }
 }
 
