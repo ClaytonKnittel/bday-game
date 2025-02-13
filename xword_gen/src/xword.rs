@@ -2397,8 +2397,8 @@ mod tests {
       stepwise_iter.next(),
       some(eq(&XWord::build_grid(
         "abcde
-           bcdea
-           cdeab",
+         bcdea
+         cdeab",
       )?))
     );
     assert_that!(stepwise_iter.next(), none());
