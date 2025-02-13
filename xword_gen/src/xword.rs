@@ -137,7 +137,7 @@ trait XWordInternal {
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)>;
 
   fn words_excluding_existing(&self) -> impl Iterator<Item = (u32, &'_ str)> {
-    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    let existing_words: HashSet<_> = self.all_prefilled_words().map(|(_, word)| word).collect();
     self
       .words()
       .filter(move |&(_, word)| !existing_words.contains(word))
@@ -148,7 +148,7 @@ trait XWordInternal {
   fn universal_words(&self) -> impl Iterator<Item = &'_ str>;
 
   fn universal_words_excluding_existing(&self) -> impl Iterator<Item = &'_ str> {
-    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    let existing_words: HashSet<_> = self.all_prefilled_words().map(|(_, word)| word).collect();
     self
       .universal_words()
       .filter(move |&word| !existing_words.contains(word))
@@ -364,7 +364,7 @@ trait XWordInternal {
       )
   }
 
-  fn all_prefilled_words(&self) -> impl Iterator<Item = String> + '_ {
+  fn all_prefilled_words(&self) -> impl Iterator<Item = (XWordCluePosition, String)> + '_ {
     self.iter_board_entries().flat_map(|(clue_pos, length)| {
       self
         .clue_letter_positions(clue_pos, length)
@@ -377,6 +377,7 @@ trait XWordInternal {
             _ => None,
           }
         })
+        .map(|word| (clue_pos, word))
     })
   }
 
@@ -487,9 +488,13 @@ trait XWordInternal {
           .filter(|word| self.word_is_compatible(clue_pos, word))
           .collect_vec()
         {
-          freq_map.add_special_case(clue_pos, word);
+          freq_map.add_special_case(clue_pos, word.to_owned());
         }
       }
+    }
+
+    for (clue_pos, word) in self.all_prefilled_words() {
+      freq_map.add_special_case(clue_pos, word);
     }
 
     freq_map
@@ -930,7 +935,7 @@ where
   pub fn solve_parallel(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
     if !self
       .all_prefilled_words()
-      .all(|word| self.bank.borrow().has(&word))
+      .all(|(_, word)| self.bank.borrow().has(&word))
     {
       return Err(
         TermgameError::Internal("Not all prefilled words are in dictionary.".to_owned()).into(),
@@ -1083,7 +1088,7 @@ where
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
     if !self
       .all_prefilled_words()
-      .all(|word| self.bank.borrow().has(&word))
+      .all(|(_, word)| self.bank.borrow().has(&word))
     {
       return Err(
         TermgameError::Internal("Not all prefilled words are in dictionary.".to_owned()).into(),
@@ -1240,7 +1245,10 @@ impl XWordInternal for XWordWithRequired {
 
 impl XWordTraits for XWordWithRequired {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
-    if !self.all_prefilled_words().all(|word| self.bank.has(&word)) {
+    if !self
+      .all_prefilled_words()
+      .all(|(_, word)| self.bank.has(&word))
+    {
       return Ok(None);
     }
 
@@ -1441,6 +1449,50 @@ mod tests {
         ),
       ]
     );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_clue_pos_map() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "________X_______X______
+         ________X_______X______
+         ________X_______X______
+         ___X______X____X___X___
+         ____XX_____X______X____
+         ______X_____XX____X____
+         XXX____X____X____X_____
+         ___X_____X______X______
+         ________X_____X_____XXX
+         _____X_______XXX_______
+         _____XX_____X______X___
+         ____X_____________X____
+         ___X______X_____XX_____
+         _______XXX_______X_____
+         XXX_____X_____X________
+         ______X______X_____X___
+         _____X____X____X____XXX
+         ____X____XX_____X______
+         ____X______X_____XX____
+         ___X___X____X______X___
+         ______X_______X________
+         ______X_______X________
+         ______X_______X________",
+      )?,
+      HashSet::new(),
+    )?;
+
+    let clue_pos_map = xword.build_clue_pos_map();
+    for (clue_pos, length) in xword.iter_board_entries() {
+      for (idx, pos) in xword.clue_letter_positions(clue_pos, length).enumerate() {
+        assert_that!(
+          clue_pos_map.get(&(pos, clue_pos.clue_number.is_row)),
+          some(eq(&(clue_pos, idx as u32)))
+        );
+      }
+    }
 
     Ok(())
   }
@@ -1754,7 +1806,9 @@ mod tests {
         "__
          X_",
       )?,
-      ["ab", "c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "c", "a", "b", "aa", "bb", "cc"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1769,7 +1823,7 @@ mod tests {
       .collect();
     expect_that!(
       word_assignments,
-      unordered_elements_are![
+      contains_each![
         (
           pat!(XWordClueAssignment {
             id: &ab_id,
@@ -1880,7 +1934,9 @@ mod tests {
          X_",
       )?,
       ["ab"].into_iter().map(|str| str.to_owned()),
-      ["ab", "c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "c", "a", "aa", "bb", "b"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1974,7 +2030,9 @@ mod tests {
         "__
          X_",
       )?,
-      ["ab", "ca", "c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "ca", "c", "a", "bb", "aa", "ax", "ay", "az"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1990,8 +2048,11 @@ mod tests {
 
     let first_row_assignments: Vec<_> = word_assignments
       .iter()
-      .filter_map(|(XWordClueAssignment { clue_pos, .. }, constraints)| {
-        (clue_pos.pos == Pos { x: 0, y: 0 } && clue_pos.clue_number.is_row).then_some(constraints)
+      .filter_map(|(XWordClueAssignment { clue_pos, id }, constraints)| {
+        (clue_pos.pos == Pos { x: 0, y: 0 }
+          && clue_pos.clue_number.is_row
+          && (*id == ab_id || *id == ca_id))
+          .then_some(constraints)
       })
       .cloned()
       .collect();
@@ -2256,7 +2317,9 @@ mod tests {
 
     expect_that!(
       xword.solve_expected(),
-      err(displays_as(contains_substring("No solution found")))
+      err(displays_as(contains_substring(
+        "Not all prefilled words are in dictionary"
+      )))
     );
 
     Ok(())
@@ -2448,7 +2511,9 @@ mod tests {
          __tXX",
       )?,
       ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
-      ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
+      ["dog", "got", "cof", "d", "ova", "to", "o", "f"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
@@ -2643,7 +2708,9 @@ mod tests {
     let xword = XWordWithRequired::from_grid(
       grid.clone(),
       ["cde"].into_iter().map(|str| str.to_owned()),
-      ["cde"].into_iter().map(|str| str.to_owned()),
+      ["cde", "ccccc", "ddddd", "eeeee"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let mut stepwise_iter = xword
@@ -2738,6 +2805,8 @@ mod tests {
         .map(|str| str.to_owned()),
     )?;
 
+    assert_that!(xword.solve_expected(), ok(anything()));
+
     let mut stepwise_iter = xword.stepwise_board_iter();
 
     assert_that!(
@@ -2827,39 +2896,6 @@ mod tests {
       )?))
     );
 
-    // TODO solver should end iteration.
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "c____
-         d____
-         e____",
-      )?))
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "_c___
-         _d___
-         _e___",
-      )?))
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "___c_
-         ___d_
-         ___e_",
-      )?))
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "____c
-         ____d
-         ____e",
-      )?))
-    );
     assert_that!(stepwise_iter.next(), none());
 
     Ok(())

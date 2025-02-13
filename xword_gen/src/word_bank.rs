@@ -38,11 +38,11 @@ impl WordBank {
   }
 }
 
-type LetterFrequencyMapEntry<'a> = (HashMap<(char, u32), u32>, HashSet<&'a str>);
+type LetterFrequencyMapEntry<S> = (HashMap<(char, u32), u32>, HashSet<S>);
 pub struct LetterFrequencyMap<'a> {
   /// Map from word_length -> ((letter, index) -> count, (set of words))
-  frequencies: HashMap<u32, LetterFrequencyMapEntry<'a>>,
-  special_cases: HashMap<(Pos, bool), LetterFrequencyMapEntry<'a>>,
+  frequencies: HashMap<u32, LetterFrequencyMapEntry<&'a str>>,
+  special_cases: HashMap<(Pos, bool), LetterFrequencyMapEntry<String>>,
 }
 
 impl<'a> LetterFrequencyMap<'a> {
@@ -71,7 +71,7 @@ impl<'a> LetterFrequencyMap<'a> {
     words.insert(word);
   }
 
-  pub fn add_special_case(&mut self, clue_pos: XWordCluePosition, word: &'a str) {
+  pub fn add_special_case(&mut self, clue_pos: XWordCluePosition, word: String) {
     let (char_map, words) = self
       .special_cases
       .entry((clue_pos.pos, clue_pos.clue_number.is_row))
@@ -95,10 +95,14 @@ impl<'a> LetterFrequencyMap<'a> {
     self
       .special_cases
       .get(&(pos, is_row))
-      .or_else(|| self.frequencies.get(&word_length))
-      .map(|(char_map, words)| {
-        char_map.get(&char_pos).cloned().unwrap_or(0) as f32 / words.len() as f32
+      .map(|(char_map, words)| (char_map.get(&char_pos).cloned().unwrap_or(0), words.len()))
+      .or_else(|| {
+        self
+          .frequencies
+          .get(&word_length)
+          .map(|(char_map, words)| (char_map.get(&char_pos).cloned().unwrap_or(0), words.len()))
       })
+      .map(|(num_compatible, num_words)| num_compatible as f32 / num_words as f32)
       .unwrap_or(0f32)
   }
 }
