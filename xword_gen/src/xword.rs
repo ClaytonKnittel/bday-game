@@ -697,6 +697,7 @@ impl<B> XWordImpl<B>
 where
   B: Borrow<WordBank>,
 {
+  // TODO delete
   pub fn list(&self) {
     let frequency_map = self.build_frequency_map();
     for (clue_pos, length) in self.iter_board_entries() {
