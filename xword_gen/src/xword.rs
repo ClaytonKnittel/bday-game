@@ -1082,7 +1082,7 @@ mod tests {
 
   use std::{collections::HashSet, iter::once};
 
-  use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType};
+  use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
   use googletest::prelude::*;
   use util::{
     error::TermgameResult,
@@ -2277,6 +2277,83 @@ mod tests {
   }
 
   #[gtest]
+  fn test_stepwise_required_only_board_iter() -> TermgameResult {
+    let grid = XWord::build_grid(
+      "_____
+       _____
+       _____",
+    )?;
+    let xword = XWordWithRequired::from_grid(
+      grid.clone(),
+      ["cde"].into_iter().map(|str| str.to_owned()),
+      ["cde"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let mut stepwise_iter = xword
+      .build_dlx_solver()
+      .into_solutions_stepwise()
+      .with_names()
+      .map(|partial_soln| match partial_soln {
+        StepwiseDlxIterResult::Solution(partial_soln)
+        | StepwiseDlxIterResult::Step(partial_soln) => {
+          xword.build_grid_from_assignments(grid.clone(), partial_soln)
+        }
+      });
+
+    assert_that!(
+      stepwise_iter.next(),
+      some(ok(eq(&XWord::build_grid(
+        "_____
+         _____
+         _____",
+      )?)))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(ok(eq(&XWord::build_grid(
+        "c____
+         d____
+         e____",
+      )?)))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(ok(eq(&XWord::build_grid(
+        "_c___
+         _d___
+         _e___",
+      )?)))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(ok(eq(&XWord::build_grid(
+        "__c__
+         __d__
+         __e__",
+      )?)))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(ok(eq(&XWord::build_grid(
+        "___c_
+         ___d_
+         ___e_",
+      )?)))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(ok(eq(&XWord::build_grid(
+        "____c
+         ____d
+         ____e",
+      )?)))
+    );
+    assert_that!(stepwise_iter.next(), none());
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_stepwise_board_iter() -> TermgameResult {
     let xword = XWordWithRequired::from_grid(
       XWord::build_grid(
@@ -2292,13 +2369,13 @@ mod tests {
 
     let mut stepwise_iter = xword.stepwise_board_iter();
 
-    assert_eq!(
+    assert_that!(
       stepwise_iter.next(),
-      Some(XWord::build_grid(
+      some(eq(&XWord::build_grid(
         "_____
          _____
          _____",
-      )?)
+      )?))
     );
     assert_that!(
       stepwise_iter.next(),
