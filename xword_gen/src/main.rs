@@ -12,17 +12,7 @@ use xword_gen::xword::{XWord, XWordTile, XWordTraits};
 const DICT_PATH: &str = "./dict.bin";
 
 fn build_and_save_dict_from_xd(xd_path: &str) -> TermgameResult {
-  const CUSTOM_CLUES: [(&str, &str); 9] = [
-    ("aaaaaa", "placeholder"),
-    ("aaaaaaa", "placeholder"),
-    ("aaaaaaaa", "placeholder"),
-    ("aaaaaaaaa", "placeholder"),
-    ("baaaaaaaa", "placeholder"),
-    ("caaaaaaaa", "placeholder"),
-    ("aaaaaaaaaaaa", "placeholder"),
-    ("aaaaaaaaaaaaaaa", "placeholder"),
-    ("clayton", "host of this event"),
-  ];
+  const CUSTOM_CLUES: [(&str, &str); 1] = [("clayton", "host of this event")];
 
   let mut dict = XWordDict::parse_xd_file(
     BufReader::new(File::open(xd_path)?)
@@ -140,6 +130,9 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
     // REQUIRED.into_iter().map(|str| str.to_owned()),
     words.into_iter().map(|str| str.to_owned()),
   )?;
+
+  // xword.list();
+  // return Ok(());
 
   let guard = pprof::ProfilerGuardBuilder::default()
     .frequency(1000)

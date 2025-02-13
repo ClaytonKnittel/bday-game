@@ -697,6 +697,27 @@ impl<B> XWordImpl<B>
 where
   B: Borrow<WordBank>,
 {
+  pub fn list(&self) {
+    let frequency_map = self.build_frequency_map();
+    for (clue_pos, length) in self.iter_board_entries() {
+      let words = frequency_map
+        .words_with_length(length)
+        .sorted_by(|word1, word2| {
+          self
+            .word_likelihood_score(word2, clue_pos, &frequency_map)
+            .partial_cmp(&self.word_likelihood_score(word1, clue_pos, &frequency_map))
+            .unwrap_or(Ordering::Equal)
+        })
+        .take(10)
+        .collect_vec();
+
+      println!(
+        "{} ({}): {:?}",
+        clue_pos.pos, clue_pos.clue_number.is_row, words
+      );
+    }
+  }
+
   fn entries_for_partition<'a>(
     &'a self,
     partition_id: Pos,
@@ -923,7 +944,10 @@ where
       .try_fold(Some(self.board().clone()), |board, mut dlx| {
         if let Some(board) = board {
           if let Some(solution) = dlx.find_solutions().with_names().next() {
-            return Ok(Some(self.build_grid_from_assignments(board, solution)?));
+            println!("Solution!");
+            let grid = self.build_grid_from_assignments(board, solution)?;
+            println!("{}", grid);
+            return Ok(Some(grid));
           }
         }
         Ok(None)
