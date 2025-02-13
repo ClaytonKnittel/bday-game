@@ -1,5 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use util::pos::Pos;
+
+use crate::xword::XWordCluePosition;
+
 #[derive(Clone, Debug)]
 pub struct WordBank {
   word_set: HashSet<String>,
@@ -38,11 +42,15 @@ type LetterFrequencyMapEntry<'a> = (HashMap<(char, u32), u32>, HashSet<&'a str>)
 pub struct LetterFrequencyMap<'a> {
   /// Map from word_length -> ((letter, index) -> count, (set of words))
   frequencies: HashMap<u32, LetterFrequencyMapEntry<'a>>,
+  special_cases: HashMap<(Pos, bool), LetterFrequencyMapEntry<'a>>,
 }
 
 impl<'a> LetterFrequencyMap<'a> {
   fn new() -> Self {
-    Self { frequencies: HashMap::new() }
+    Self {
+      frequencies: HashMap::new(),
+      special_cases: HashMap::new(),
+    }
   }
 
   // TODO make private, build in WordBank
@@ -63,6 +71,17 @@ impl<'a> LetterFrequencyMap<'a> {
     words.insert(word);
   }
 
+  pub fn add_special_case(&mut self, clue_pos: XWordCluePosition, word: &'a str) {
+    let (char_map, words) = self
+      .special_cases
+      .entry((clue_pos.pos, clue_pos.clue_number.is_row))
+      .or_default();
+    for (idx, letter) in word.chars().enumerate() {
+      *char_map.entry((letter, idx as u32)).or_default() += 1;
+    }
+    words.insert(word);
+  }
+
   pub fn words_with_length(&self, word_length: u32) -> impl Iterator<Item = &'a str> + '_ {
     self
       .frequencies
@@ -72,10 +91,11 @@ impl<'a> LetterFrequencyMap<'a> {
       .flatten()
   }
 
-  pub fn likelihood(&self, word_length: u32, char_pos: (char, u32)) -> f32 {
+  pub fn likelihood(&self, pos: Pos, is_row: bool, word_length: u32, char_pos: (char, u32)) -> f32 {
     self
-      .frequencies
-      .get(&word_length)
+      .special_cases
+      .get(&(pos, is_row))
+      .or_else(|| self.frequencies.get(&word_length))
       .map(|(char_map, words)| {
         char_map.get(&char_pos).cloned().unwrap_or(0) as f32 / words.len() as f32
       })

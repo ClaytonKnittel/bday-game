@@ -24,14 +24,14 @@ use crate::word_bank::{LetterFrequencyMap, WordBank};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueNumber {
-  number: u32,
-  is_row: bool,
+  pub number: u32,
+  pub is_row: bool,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordCluePosition {
-  pos: Pos,
-  clue_number: XWordClueNumber,
+  pub pos: Pos,
+  pub clue_number: XWordClueNumber,
 }
 
 /// Tiles indicate letters filled in on the board by a clue. Each letter
@@ -407,41 +407,12 @@ trait XWordInternal {
     } else {
       Diff { x: 0, y: 1 }
     };
-    let other_dir_pos = XWordCluePosition {
-      pos: letter_pos - diff * (letter_idx as i32),
-      clue_number: XWordClueNumber { number: 0, is_row },
-    };
-    if self
-      .clue_letter_positions(other_dir_pos, word_length)
-      .any(|pos| {
-        self
-          .board()
-          .get(pos)
-          .is_some_and(|tile| matches!(tile, XWordTile::Letter(_)))
-      })
-    {
-      let (total, matching) = frequency_map
-        .words_with_length(word_length)
-        .filter(|word| self.word_is_compatible(other_dir_pos, word))
-        .fold((0, 0), |(total, matching), word| {
-          (
-            total + 1,
-            matching
-              + if word.chars().nth(letter_idx as usize) == Some(letter) {
-                1
-              } else {
-                0
-              },
-          )
-        });
-      if total == 0 {
-        0.
-      } else {
-        (matching as f32) / (total as f32)
-      }
-    } else {
-      frequency_map.likelihood(word_length, (letter, letter_idx))
-    }
+    frequency_map.likelihood(
+      letter_pos - diff * (letter_idx as i32),
+      is_row,
+      word_length,
+      (letter, letter_idx),
+    )
   }
 
   fn word_likelihood_score(
@@ -477,7 +448,26 @@ trait XWordInternal {
   }
 
   fn build_frequency_map(&self) -> LetterFrequencyMap {
-    LetterFrequencyMap::from_words(self.universal_words_excluding_existing())
+    let mut freq_map = LetterFrequencyMap::from_words(self.universal_words_excluding_existing());
+
+    for (clue_pos, length) in self.iter_board_entries() {
+      if self.clue_letter_positions(clue_pos, length).any(|pos| {
+        self
+          .board()
+          .get(pos)
+          .is_some_and(|tile| matches!(tile, XWordTile::Letter(_)))
+      }) {
+        for word in freq_map
+          .words_with_length(length)
+          .filter(|word| self.word_is_compatible(clue_pos, word))
+          .collect_vec()
+        {
+          freq_map.add_special_case(clue_pos, word);
+        }
+      }
+    }
+
+    freq_map
   }
 
   fn build_word_assignments_from_entries(
@@ -1385,24 +1375,24 @@ mod tests {
   fn test_letter_frequency_map_likelihood() {
     let map = LetterFrequencyMap::from_words(["a", "b", "c", "ab", "ac", "cc"]);
 
-    expect_float_eq!(map.likelihood(1, ('a', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(1, ('b', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(1, ('c', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(1, ('d', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('a', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('b', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('c', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('d', 0)), 0.);
 
-    expect_float_eq!(map.likelihood(2, ('a', 0)), 2. / 3.);
-    expect_float_eq!(map.likelihood(2, ('b', 0)), 0.);
-    expect_float_eq!(map.likelihood(2, ('c', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(2, ('d', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('a', 0)), 2. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('b', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('c', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('d', 0)), 0.);
 
-    expect_float_eq!(map.likelihood(2, ('a', 1)), 0.);
-    expect_float_eq!(map.likelihood(2, ('b', 1)), 1. / 3.);
-    expect_float_eq!(map.likelihood(2, ('c', 1)), 2. / 3.);
-    expect_float_eq!(map.likelihood(2, ('d', 1)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('a', 1)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('b', 1)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('c', 1)), 2. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('d', 1)), 0.);
 
-    expect_float_eq!(map.likelihood(3, ('a', 0)), 0.);
-    expect_float_eq!(map.likelihood(3, ('b', 0)), 0.);
-    expect_float_eq!(map.likelihood(3, ('c', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 3, ('a', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 3, ('b', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 3, ('c', 0)), 0.);
   }
 
   #[gtest]
@@ -1563,7 +1553,7 @@ mod tests {
       .map(|str| str.to_owned()),
     )?;
 
-    let frequency_map = LetterFrequencyMap::from_words(xword.bank.all_words());
+    let frequency_map = xword.build_frequency_map();
 
     // First-position letters in columns across the top row:
     expect_float_eq!(
