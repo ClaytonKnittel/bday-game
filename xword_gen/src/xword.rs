@@ -398,12 +398,11 @@ trait XWordInternal {
     board_entries: impl Iterator<Item = (XWordCluePosition, u32)>,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let frequency_map = self.build_frequency_map();
+    // TODO construct this map in WordBank
     let mut word_map: HashMap<_, _> = self.words().map(|(id, word)| (word, (id, 0))).collect();
 
     let mut clue_pos_id = 0;
 
-    // All constraints are grouped by board entry, and within each category
-    // sorted by a "fitness" score of the clue in that position.
     board_entries
       .flat_map(move |(clue_pos, length)| -> Vec<_> {
         let constraint_label = XWordConstraint::ClueNumber(clue_pos.clue_number);
@@ -681,6 +680,23 @@ where
       })
   }
 
+  fn do_prefilled_words_exist(&self) -> bool {
+    self.iter_board_entries().all(|(clue_pos, length)| {
+      self
+        .clue_letter_positions(clue_pos, length)
+        .try_fold("".to_owned(), |mut word_accum, pos| {
+          match self.board.get(pos) {
+            Some(&XWordTile::Letter(letter)) => {
+              word_accum.push(letter);
+              Some(word_accum)
+            }
+            _ => None,
+          }
+        })
+        .is_none_or(|word| self.bank.borrow().has(&word))
+    })
+  }
+
   fn build_partitioned_word_assignments<'a>(
     &'a self,
     uf: &'a UnionFind<Pos>,
@@ -879,6 +895,10 @@ where
   B: Borrow<WordBank>,
 {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    if !self.do_prefilled_words_exist() {
+      return Ok(None);
+    }
+
     self
       .build_dlx_solvers()
       .into_values()
@@ -1072,7 +1092,7 @@ mod tests {
   use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType};
   use googletest::prelude::*;
   use util::{
-    error::{TermgameError, TermgameResult},
+    error::TermgameResult,
     grid::{Grid, Gridlike},
     pos::Pos,
   };
@@ -2119,10 +2139,10 @@ mod tests {
   fn test_mini_with_partial() -> TermgameResult {
     let xword = XWord::from_grid(
       XWord::build_grid(
-        "Xa
-         _b",
+        "Xaz
+         _bX",
       )?,
-      ["a", "xa", "x", "c", "aa", "cb"]
+      ["xa", "x", "c", "aa", "ab", "az", "z", "cb"]
         .into_iter()
         .map(|str| str.to_owned()),
     )?;
@@ -2134,9 +2154,9 @@ mod tests {
     #[rustfmt::skip]
     let expected_solution = Grid::from_vec(
       vec![
-        Wall,        Letter('a'),
-        Letter('c'), Letter('b'),
-      ], 2, 2,
+        Wall,        Letter('a'), Letter('z'),
+        Letter('c'), Letter('b'), Wall,
+      ], 3, 2,
     ).unwrap();
     expect_eq!(solution, expected_solution);
 
