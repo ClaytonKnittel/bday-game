@@ -2294,59 +2294,73 @@ mod tests {
       .into_solutions_stepwise()
       .with_names()
       .map(|partial_soln| match partial_soln {
-        StepwiseDlxIterResult::Solution(partial_soln)
-        | StepwiseDlxIterResult::Step(partial_soln) => {
-          xword.build_grid_from_assignments(grid.clone(), partial_soln)
+        StepwiseDlxIterResult::Solution(partial_soln) => StepwiseDlxIterResult::Solution(
+          xword.build_grid_from_assignments(grid.clone(), partial_soln),
+        ),
+        StepwiseDlxIterResult::Step(partial_soln) => {
+          StepwiseDlxIterResult::Step(xword.build_grid_from_assignments(grid.clone(), partial_soln))
         }
       });
 
     assert_that!(
       stepwise_iter.next(),
-      some(ok(eq(&XWord::build_grid(
-        "_____
+      some(pat!(StepwiseDlxIterResult::Step(ok(eq(
+        &XWord::build_grid(
+          "_____
          _____
          _____",
-      )?)))
+        )?
+      )))))
     );
     assert_that!(
       stepwise_iter.next(),
-      some(ok(eq(&XWord::build_grid(
-        "c____
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "c____
          d____
          e____",
-      )?)))
+        )?
+      )))))
     );
     assert_that!(
       stepwise_iter.next(),
-      some(ok(eq(&XWord::build_grid(
-        "_c___
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "_c___
          _d___
          _e___",
-      )?)))
+        )?
+      )))))
     );
     assert_that!(
       stepwise_iter.next(),
-      some(ok(eq(&XWord::build_grid(
-        "__c__
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "__c__
          __d__
          __e__",
-      )?)))
+        )?
+      )))))
     );
     assert_that!(
       stepwise_iter.next(),
-      some(ok(eq(&XWord::build_grid(
-        "___c_
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "___c_
          ___d_
          ___e_",
-      )?)))
+        )?
+      )))))
     );
     assert_that!(
       stepwise_iter.next(),
-      some(ok(eq(&XWord::build_grid(
-        "____c
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "____c
          ____d
          ____e",
-      )?)))
+        )?
+      )))))
     );
     assert_that!(stepwise_iter.next(), none());
 
