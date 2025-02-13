@@ -5,6 +5,7 @@ use std::{
   fmt::Display,
   iter::{self, once},
   rc::Rc,
+  sync::{Arc, Mutex},
   thread,
 };
 
@@ -884,10 +885,38 @@ where
       return Ok(None);
     }
 
+    let done = Arc::new(Mutex::new(false));
+
+    // println!("Spawning");
     let join_handles = self
       .build_dlx_solvers()
       .into_values()
-      .map(|mut dlx| thread::spawn(move || dlx.find_solutions().with_names().next()))
+      .map(|mut dlx| {
+        let done = done.clone();
+        thread::spawn(move || {
+          // println!("Spawning guy");
+          if let Some(solution) =
+            dlx
+              .find_solutions_stepwise()
+              .with_names()
+              .find_map(|partial_soln| {
+                if *done.lock().ok()? {
+                  return Some(None);
+                }
+
+                match partial_soln {
+                  StepwiseDlxIterResult::Step(_) => None,
+                  StepwiseDlxIterResult::Solution(solution) => Some(Some(solution)),
+                }
+              })
+          {
+            solution
+          } else {
+            *done.lock().ok()? = true;
+            None
+          }
+        })
+      })
       .collect_vec();
 
     join_handles
