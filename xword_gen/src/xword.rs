@@ -698,7 +698,7 @@ where
     })
   }
 
-  fn build_partition_uf(&self) -> UnionFind<Pos> {
+  pub fn build_partition_uf(&self) -> UnionFind<Pos> {
     let mut uf = UnionFind::from_keys(self.board().positions().filter(|&pos| self.empty(pos)));
     for (XWordEntry { number, pos, length }, is_row) in self
       .iterate_row_clues()

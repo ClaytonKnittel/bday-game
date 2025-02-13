@@ -13,7 +13,7 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use crossword::Crossword;
-use interactive_grid::InteractiveGrid;
+use interactive_grid::{InteractiveGrid, InteractiveGridMode};
 use pc::Pc;
 use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
@@ -41,10 +41,11 @@ struct Args {
   mode: RunMode,
 }
 
-fn read_grid(path: &str) -> TermgameResult<InteractiveGrid> {
-  Ok(InteractiveGrid::from_grid(bitcode::decode(&fs::read(
-    path,
-  )?)?))
+fn read_grid(path: &str, mode: InteractiveGridMode) -> TermgameResult<InteractiveGrid> {
+  Ok(InteractiveGrid::from_grid(
+    bitcode::decode(&fs::read(path)?)?,
+    mode,
+  ))
 }
 
 fn read_dict() -> TermgameResult<XWordDict> {
@@ -136,14 +137,13 @@ fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
 
-fn interactive_grid() -> TermgameResult {
+fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  let grid = read_grid(GRID_PATH).or_else(|_| -> TermgameResult<_> {
-    Ok(InteractiveGrid::from_grid(Grid::from_vec(
-      vec![XWordTile::Empty; 50 * 51],
-      50,
-      51,
-    )?))
+  let grid = read_grid(GRID_PATH, mode).or_else(|_| -> TermgameResult<_> {
+    Ok(InteractiveGrid::from_grid(
+      Grid::from_vec(vec![XWordTile::Empty; 50 * 51], 50, 51)?,
+      mode,
+    ))
   })?;
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
@@ -268,7 +268,7 @@ fn play_puzzle() -> TermgameResult {
 fn run() -> TermgameResult {
   let args = Args::parse();
   match args.mode {
-    RunMode::InteractiveGrid => interactive_grid(),
+    RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::DisjointRegions),
     RunMode::Progress => show_dlx_iters(),
     RunMode::Play => play_puzzle(),
   }

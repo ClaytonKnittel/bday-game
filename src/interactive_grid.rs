@@ -1,12 +1,18 @@
-use std::collections::HashMap;
+use std::{
+  cell::{Ref, RefCell},
+  collections::HashMap,
+  iter,
+};
 
+use itertools::Itertools;
 use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
   error::TermgameResult,
   grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
+  union_find::UnionFind,
 };
-use xword_gen::xword::XWordTile;
+use xword_gen::xword::{XWord, XWordTile};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Satisfaction {
@@ -16,28 +22,147 @@ enum Satisfaction {
   Forbidden,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum InteractiveGridMode {
+  WordLengthSat,
+  DisjointRegions,
+}
+
+trait TileColorer {
+  fn tile_color(&self, grid: &InteractiveGrid, pos: Pos) -> color::AnsiValue;
+
+  fn refresh(&mut self, grid: &Grid<XWordTile>);
+}
+
+struct LengthSatColorer {}
+
+impl LengthSatColorer {
+  fn length_sat(length: u32) -> Satisfaction {
+    if length < 3 {
+      Satisfaction::Forbidden
+    } else if length < 5 {
+      Satisfaction::Ok
+    } else if length < 9 {
+      Satisfaction::Good
+    } else if length < 12 {
+      Satisfaction::Ok
+    } else if length <= 15 {
+      Satisfaction::Bad
+    } else {
+      Satisfaction::Forbidden
+    }
+  }
+
+  fn tile_sat(&self, grid: &InteractiveGrid, pos: Pos) -> Satisfaction {
+    // row sat:
+    let row_length = 1
+      + (1..)
+        .map_while(|dx| grid.is_free(pos + Diff { x: dx, y: 0 }).then_some(()))
+        .count()
+      + (1..)
+        .map_while(|dx| grid.is_free(pos + Diff { x: -dx, y: 0 }).then_some(()))
+        .count();
+    // col sat:
+    let col_length = 1
+      + (1..)
+        .map_while(|dy| grid.is_free(pos + Diff { x: 0, y: dy }).then_some(()))
+        .count()
+      + (1..)
+        .map_while(|dy| grid.is_free(pos + Diff { x: 0, y: -dy }).then_some(()))
+        .count();
+
+    Self::length_sat(row_length as u32).max(Self::length_sat(col_length as u32))
+  }
+}
+
+impl TileColorer for LengthSatColorer {
+  fn tile_color(&self, grid: &InteractiveGrid, pos: Pos) -> color::AnsiValue {
+    match self.tile_sat(grid, pos) {
+      Satisfaction::Good => color::AnsiValue::rgb(0, 4, 0),
+      Satisfaction::Ok => color::AnsiValue::rgb(5, 3, 0),
+      Satisfaction::Bad => color::AnsiValue::rgb(5, 0, 0),
+      Satisfaction::Forbidden => color::AnsiValue::rgb(1, 0, 0),
+    }
+  }
+
+  fn refresh(&mut self, _grid: &Grid<XWordTile>) {}
+}
+
+struct DisjointRegionColorer {
+  uf: Option<UnionFind<Pos>>,
+  color_map: HashMap<Pos, color::AnsiValue>,
+}
+
+impl DisjointRegionColorer {
+  fn new() -> Self {
+    Self { uf: None, color_map: HashMap::new() }
+  }
+
+  fn color_at_idx(idx: usize) -> color::AnsiValue {
+    let r = (3 + 3 * idx + (idx / 2)) % 6;
+    let g = idx % 6;
+    let b = (2 + idx / 6) % 6;
+    color::AnsiValue::rgb(r as u8, g as u8, b as u8)
+  }
+}
+
+impl TileColorer for DisjointRegionColorer {
+  fn tile_color(&self, _grid: &InteractiveGrid, pos: Pos) -> color::AnsiValue {
+    self
+      .uf
+      .as_ref()
+      .and_then(|uf| self.color_map.get(&uf.find_immut(pos)))
+      .cloned()
+      .unwrap_or(color::AnsiValue::grayscale(23))
+  }
+
+  fn refresh(&mut self, grid: &Grid<XWordTile>) {
+    self.uf = XWord::from_grid(grid.clone(), iter::empty())
+      .map(|xword| xword.build_partition_uf())
+      .ok();
+
+    if let Some(ref uf) = self.uf {
+      let mut root_level_keys = uf.root_level_keys().into_iter().collect_vec();
+      root_level_keys.sort_by_key(|pos| (pos.x as u64 + pos.y as u64 * (u32::MAX as u64 + 1)));
+      self.color_map = root_level_keys
+        .into_iter()
+        .enumerate()
+        .map(|(idx, key)| (key, Self::color_at_idx(idx)))
+        .collect()
+    }
+  }
+}
+
 pub struct InteractiveGrid {
   grid: Grid<XWordTile>,
+  tile_colorer: Box<RefCell<dyn TileColorer>>,
   cursor_pos: Pos,
   to_right: bool,
 }
 
 impl InteractiveGrid {
-  pub fn new(width: u32, height: u32) -> TermgameResult<Self> {
-    Ok(Self {
-      grid: Grid::from_vec(
+  fn build_tile_colorer(mode: InteractiveGridMode) -> Box<RefCell<dyn TileColorer>> {
+    match mode {
+      InteractiveGridMode::WordLengthSat => Box::new(RefCell::new(LengthSatColorer {})),
+      InteractiveGridMode::DisjointRegions => Box::new(RefCell::new(DisjointRegionColorer::new())),
+    }
+  }
+
+  pub fn new(mode: InteractiveGridMode, width: u32, height: u32) -> TermgameResult<Self> {
+    Ok(Self::from_grid(
+      Grid::from_vec(
         vec![XWordTile::Empty; (width * height) as usize],
         width,
         height,
       )?,
-      cursor_pos: Pos::zero(),
-      to_right: true,
-    })
+      mode,
+    ))
   }
 
-  pub fn from_grid(grid: Grid<XWordTile>) -> Self {
+  pub fn from_grid(grid: Grid<XWordTile>, mode: InteractiveGridMode) -> Self {
     Self {
       grid,
+      tile_colorer: Self::build_tile_colorer(mode),
       cursor_pos: Pos::zero(),
       to_right: true,
     }
@@ -66,41 +191,8 @@ impl InteractiveGrid {
     self.grid.get(pos).is_some_and(|tile| tile.available())
   }
 
-  fn length_sat(length: u32) -> Satisfaction {
-    if length < 3 {
-      Satisfaction::Forbidden
-    } else if length < 5 {
-      Satisfaction::Ok
-    } else if length < 9 {
-      Satisfaction::Good
-    } else if length < 12 {
-      Satisfaction::Ok
-    } else if length <= 15 {
-      Satisfaction::Bad
-    } else {
-      Satisfaction::Forbidden
-    }
-  }
-
-  fn tile_sat(&self, pos: Pos) -> Satisfaction {
-    // row sat:
-    let row_length = 1
-      + (1..)
-        .map_while(|dx| self.is_free(pos + Diff { x: dx, y: 0 }).then_some(()))
-        .count()
-      + (1..)
-        .map_while(|dx| self.is_free(pos + Diff { x: -dx, y: 0 }).then_some(()))
-        .count();
-    // col sat:
-    let col_length = 1
-      + (1..)
-        .map_while(|dy| self.is_free(pos + Diff { x: 0, y: dy }).then_some(()))
-        .count()
-      + (1..)
-        .map_while(|dy| self.is_free(pos + Diff { x: 0, y: -dy }).then_some(()))
-        .count();
-
-    Self::length_sat(row_length as u32).max(Self::length_sat(col_length as u32))
+  fn tile_colorer(&self) -> Ref<'_, dyn TileColorer> {
+    self.tile_colorer.as_ref().borrow()
   }
 
   fn clue_num_map(&self) -> HashMap<Pos, u32> {
@@ -122,12 +214,7 @@ impl InteractiveGrid {
 
 impl Entity for InteractiveGrid {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
-    let sat_color = |sat: Satisfaction| match sat {
-      Satisfaction::Good => color::AnsiValue::rgb(0, 4, 0),
-      Satisfaction::Ok => color::AnsiValue::rgb(5, 3, 0),
-      Satisfaction::Bad => color::AnsiValue::rgb(5, 0, 0),
-      Satisfaction::Forbidden => color::AnsiValue::rgb(1, 0, 0),
-    };
+    self.tile_colorer.borrow_mut().refresh(&self.grid);
 
     Box::new((0..self.grid.height() as i32).flat_map(move |y| {
       let clue_num_map = self.clue_num_map();
@@ -142,7 +229,7 @@ impl Entity for InteractiveGrid {
             } else {
               '_'
             };
-            Draw::new(tile).with_fg(sat_color(self.tile_sat(pos)))
+            Draw::new(tile).with_fg(self.tile_colorer().tile_color(self, pos))
           }
           _ => unreachable!(),
         };
