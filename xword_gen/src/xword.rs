@@ -1,7 +1,7 @@
 use std::{
   borrow::Borrow,
   cmp::Ordering,
-  collections::{HashMap, HashSet},
+  collections::HashMap,
   fmt::Display,
   iter::{self, once},
   rc::Rc,
