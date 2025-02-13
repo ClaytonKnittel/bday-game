@@ -355,13 +355,17 @@ trait XWordInternal {
     })
   }
 
-  fn letter_likelihood_score(
-    &self,
-    letter: char,
-    pos: Pos,
-    is_row: bool,
-    frequency_map: &LetterFrequencyMap,
-  ) -> f32 {
+  fn word_is_compatible(&self, clue_pos: XWordCluePosition, word: &str) -> bool {
+    self
+      .word_letter_positions(clue_pos, word)
+      .all(|(c, pos)| match self.board().get(pos) {
+        Some(XWordTile::Empty) => true,
+        Some(&XWordTile::Letter(letter)) => letter == c,
+        _ => unreachable!(),
+      })
+  }
+
+  fn idx_len_for_letter(&self, letter_pos: Pos, is_row: bool) -> (u32, u32) {
     let diff = if is_row {
       Diff { x: 1, y: 0 }
     } else {
@@ -371,7 +375,7 @@ trait XWordInternal {
       .take_while(|&delta| {
         self
           .board()
-          .get(pos - delta * diff)
+          .get(letter_pos - delta * diff)
           .is_some_and(|tile| tile.available())
       })
       .count() as u32;
@@ -381,12 +385,63 @@ trait XWordInternal {
         .take_while(|&delta| {
           self
             .board()
-            .get(pos + delta * diff)
+            .get(letter_pos + delta * diff)
             .is_some_and(|tile| tile.available())
         })
         .count() as u32;
 
-    frequency_map.likelihood(word_length, (letter, letter_idx))
+    (letter_idx, word_length)
+  }
+
+  fn letter_likelihood_score(
+    &self,
+    letter: char,
+    letter_pos: Pos,
+    is_row: bool,
+    frequency_map: &LetterFrequencyMap,
+  ) -> f32 {
+    let (letter_idx, word_length) = self.idx_len_for_letter(letter_pos, is_row);
+
+    let diff = if is_row {
+      Diff { x: 1, y: 0 }
+    } else {
+      Diff { x: 0, y: 1 }
+    };
+    let other_dir_pos = XWordCluePosition {
+      pos: letter_pos - diff * (letter_idx as i32),
+      clue_number: XWordClueNumber { number: 0, is_row },
+    };
+    if self
+      .clue_letter_positions(other_dir_pos, word_length)
+      .any(|pos| {
+        self
+          .board()
+          .get(pos)
+          .is_some_and(|tile| matches!(tile, XWordTile::Letter(_)))
+      })
+    {
+      let (total, matching) = frequency_map
+        .words_with_length(word_length)
+        .filter(|word| self.word_is_compatible(other_dir_pos, word))
+        .fold((0, 0), |(total, matching), word| {
+          (
+            total + 1,
+            matching
+              + if word.chars().nth(letter_idx as usize) == Some(letter) {
+                1
+              } else {
+                0
+              },
+          )
+        });
+      if total == 0 {
+        0.
+      } else {
+        (matching as f32) / (total as f32)
+      }
+    } else {
+      frequency_map.likelihood(word_length, (letter, letter_idx))
+    }
   }
 
   fn word_likelihood_score(
@@ -448,15 +503,7 @@ trait XWordInternal {
 
         frequency_map
           .words_with_length(length)
-          .filter(|word| {
-            self
-              .word_letter_positions(clue_pos, word)
-              .all(|(c, pos)| match self.board().get(pos) {
-                Some(XWordTile::Empty) => true,
-                Some(&XWordTile::Letter(letter)) => letter == c,
-                _ => unreachable!(),
-              })
-          })
+          .filter(|word| self.word_is_compatible(clue_pos, word))
           .flat_map(|word| {
             let (id, clue_instance_id) = word_map.get_mut(word)?;
             let id = *id;
@@ -1496,6 +1543,36 @@ mod tests {
     expect_float_eq!(
       xword.letter_likelihood_score('a', Pos { x: 3, y: 0 }, true, &frequency_map),
       0.
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_letter_likelihood_score_with_existing() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "___
+         __a",
+      )?,
+      [
+        "aa", "ab", "ac", "ba", //
+        "aab", "aba", "aca", "bda", //
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
+    )?;
+
+    let frequency_map = LetterFrequencyMap::from_words(xword.bank.all_words());
+
+    // First-position letters in columns across the top row:
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 2, y: 0 }, false, &frequency_map),
+      1. / 2.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 0, y: 1 }, true, &frequency_map),
+      2. / 3.
     );
 
     Ok(())
