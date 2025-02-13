@@ -9,16 +9,34 @@ use xword_gen::xword::XWordTile;
 
 const Z_IDX: i32 = 5;
 
+#[derive(Clone, Copy, Debug)]
+enum CrosswordView {
+  Expanded,
+  Compressed,
+}
+
 pub struct Crossword {
   grid: Grid<XWordTile>,
+  view: CrosswordView,
 }
 
 impl Crossword {
-  const XSCALE: i32 = 4;
-  const YSCALE: i32 = 2;
+  fn xscale(&self) -> i32 {
+    match self.view {
+      CrosswordView::Expanded => 4,
+      CrosswordView::Compressed => 2,
+    }
+  }
+
+  fn yscale(&self) -> i32 {
+    match self.view {
+      CrosswordView::Expanded => 2,
+      CrosswordView::Compressed => 1,
+    }
+  }
 
   pub fn from_grid(grid: Grid<XWordTile>) -> Self {
-    Self { grid }
+    Self { grid, view: CrosswordView::Compressed }
   }
 
   pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
@@ -34,11 +52,11 @@ impl Crossword {
   }
 
   pub fn screen_width(&self) -> u32 {
-    self.width() * Self::XSCALE as u32 + 1
+    self.width() * self.xscale() as u32 + 1
   }
 
   pub fn screen_height(&self) -> u32 {
-    self.height() * Self::YSCALE as u32 + 1
+    self.height() * self.yscale() as u32 + 1
   }
 
   fn is_wall(&self, pos: Pos) -> bool {
@@ -150,10 +168,8 @@ impl Crossword {
       '\u{2500}'
     }
   }
-}
 
-impl Entity for Crossword {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn generate_expanded_view(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
     let col = color::AnsiValue::grayscale(20);
 
     Box::new(
@@ -161,10 +177,13 @@ impl Entity for Crossword {
         .flat_map(move |y| {
           (0..self.width() as i32)
             .flat_map(move |x| {
-              let pos = Pos { x: x * Self::XSCALE, y: y * Self::YSCALE };
+              let pos = Pos {
+                x: x * self.xscale(),
+                y: y * self.yscale(),
+              };
 
-              (0..Self::YSCALE).flat_map(move |dy| {
-                (0..Self::XSCALE).flat_map(move |dx| {
+              (0..self.yscale()).flat_map(move |dy| {
+                (0..self.xscale()).flat_map(move |dx| {
                   let pos = pos + Diff { x: dx, y: dy };
                   let grid_pos = Pos { x, y };
                   let letter = self.grid.get(grid_pos)?.clone();
@@ -175,7 +194,7 @@ impl Entity for Crossword {
                     self.v_bar_at(grid_pos)
                   } else if dy == 0 {
                     self.h_bar_at(grid_pos)
-                  } else if dx == Self::XSCALE / 2 && dy == Self::YSCALE / 2 {
+                  } else if dx == self.xscale() / 2 && dy == self.yscale() / 2 {
                     match letter {
                       XWordTile::Letter(c) => c,
                       XWordTile::Empty => ' ',
@@ -194,7 +213,7 @@ impl Entity for Crossword {
                 })
               })
             })
-            .chain((0..Self::YSCALE).map(move |dy| {
+            .chain((0..self.yscale()).map(move |dy| {
               let grid_pos = Pos { x: self.width() as i32, y };
               let tile = if y == 0 && dy == 0 {
                 // ┓
@@ -207,14 +226,14 @@ impl Entity for Crossword {
               (
                 Draw::new(tile).with_fg(col).with_z(Z_IDX),
                 Pos {
-                  x: self.width() as i32 * Self::XSCALE,
-                  y: y * Self::YSCALE + dy,
+                  x: self.width() as i32 * self.xscale(),
+                  y: y * self.yscale() + dy,
                 },
               )
             }))
         })
         .chain((0..self.width() as i32).flat_map(move |x| {
-          (0..Self::XSCALE).map(move |dx| {
+          (0..self.xscale()).map(move |dx| {
             let grid_pos = Pos { x, y: self.height() as i32 };
             let tile = if x == 0 && dx == 0 {
               // ┗
@@ -227,8 +246,8 @@ impl Entity for Crossword {
             (
               Draw::new(tile).with_fg(col).with_z(Z_IDX),
               Pos {
-                x: x * Self::XSCALE + dx,
-                y: self.height() as i32 * Self::YSCALE,
+                x: x * self.xscale() + dx,
+                y: self.height() as i32 * self.yscale(),
               },
             )
           })
@@ -241,11 +260,40 @@ impl Entity for Crossword {
           .with_fg(col)
           .with_z(Z_IDX),
           Pos {
-            x: self.width() as i32 * Self::XSCALE,
-            y: self.height() as i32 * Self::YSCALE,
+            x: self.width() as i32 * self.xscale(),
+            y: self.height() as i32 * self.yscale(),
           },
         ))),
     )
+  }
+
+  fn generate_compressed_view(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+    let col = color::AnsiValue::grayscale(20);
+
+    Box::new((0..self.height() as i32).flat_map(move |y| {
+      (0..self.width() as i32).map(move |x| {
+        let pos = Pos { x: x * 2, y };
+
+        let tile = match self.grid.get(Pos { x, y }) {
+          Some(&XWordTile::Letter(c)) => c,
+          Some(XWordTile::Wall) => 'X',
+          Some(XWordTile::Empty) => '_',
+          None => unreachable!(),
+        };
+        let draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
+
+        (draw, pos)
+      })
+    }))
+  }
+}
+
+impl Entity for Crossword {
+  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+    match self.view {
+      CrosswordView::Expanded => self.generate_expanded_view(),
+      CrosswordView::Compressed => self.generate_compressed_view(),
+    }
   }
 
   fn as_any(&self) -> &dyn std::any::Any {
@@ -253,5 +301,16 @@ impl Entity for Crossword {
   }
   fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
     self
+  }
+
+  fn keypress(&mut self, key: termgame::Key) -> util::error::TermgameResult {
+    if let termgame::Key::Char('m') = key {
+      self.view = match self.view {
+        CrosswordView::Expanded => CrosswordView::Compressed,
+        CrosswordView::Compressed => CrosswordView::Expanded,
+      };
+    }
+
+    Ok(())
   }
 }
