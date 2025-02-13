@@ -248,6 +248,30 @@ trait XWordInternal {
       .map(|entry| XWordEntry { pos: entry.pos.transpose(), ..entry })
   }
 
+  /// Map that tracks (clue_pos, idx in word) for each pos is in the row/col clue it resides.
+  fn build_clue_pos_map(&self) -> HashMap<(Pos, bool), (XWordCluePosition, u32)> {
+    self
+      .iter_board_entries()
+      .fold(HashMap::new(), |mut map, (clue_pos, length)| {
+        for idx in 0..length {
+          let diff = if clue_pos.clue_number.is_row {
+            Diff { x: 1, y: 0 }
+          } else {
+            Diff { x: 0, y: 1 }
+          };
+          let old_val = map.insert(
+            (
+              clue_pos.pos + diff * (idx as i32),
+              clue_pos.clue_number.is_row,
+            ),
+            (clue_pos, idx),
+          );
+          debug_assert!(old_val.is_none());
+        }
+        map
+      })
+  }
+
   fn clue_letter_positions_unbounded<'a>(
     &self,
     clue_pos: XWordCluePosition,
@@ -479,6 +503,8 @@ trait XWordInternal {
     // TODO construct this map in WordBank
     let mut word_map: HashMap<_, _> = self.words().map(|(id, word)| (word, (id, 0))).collect();
 
+    let clue_pos_map = self.build_clue_pos_map();
+
     let mut clue_pos_id = 0;
 
     board_entries
@@ -529,6 +555,29 @@ trait XWordInternal {
                   )
                 }),
             );
+
+            // TODO: This is a rough heuristic, not sure if this will work...
+            if !Self::should_fill_board() {
+              constraints.extend(
+                self
+                  .clue_letter_positions(clue_pos, length)
+                  .flat_map(|pos| {
+                    if let Some((other_clue_pos, _)) =
+                      clue_pos_map.get(&(pos, !clue_pos.clue_number.is_row))
+                    {
+                      let constraint = Constraint::Secondary(ColorItem::new(
+                        XWordConstraint::ClueNumber(other_clue_pos.clue_number),
+                        clue_pos_id,
+                      ));
+                      clue_pos_id += 1;
+                      Some(constraint)
+                    } else {
+                      debug_assert!(false);
+                      None
+                    }
+                  }),
+              );
+            }
 
             Some((
               (XWordClueAssignment { id, clue_pos }, constraints),
