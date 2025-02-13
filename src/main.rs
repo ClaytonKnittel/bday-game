@@ -38,13 +38,6 @@ struct Args {
   mode: RunMode,
 }
 
-fn read_grid(path: &str, mode: InteractiveGridMode) -> TermgameResult<InteractiveGrid> {
-  Ok(InteractiveGrid::from_grid(
-    bitcode::decode(&fs::read(path)?)?,
-    mode,
-  ))
-}
-
 fn read_dict() -> TermgameResult<XWordDict> {
   const DICT_PATH: &str = "./xword_gen/dict.bin";
   Ok(bitcode::decode(&fs::read(DICT_PATH)?)?)
@@ -130,18 +123,16 @@ const fn partial_sunday() -> &'static str {
    ______X_______X________"
 }
 
-fn mega_grid() -> TermgameResult<Grid<bool>> {
-  Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
+fn mega_grid() -> TermgameResult<Grid<XWordTile>> {
+  Ok(bitcode::decode(&fs::read(GRID_PATH)?)?)
 }
 
 fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  let grid = read_grid(GRID_PATH, mode).or_else(|_| -> TermgameResult<_> {
-    Ok(InteractiveGrid::from_grid(
-      Grid::from_vec(vec![XWordTile::Empty; 50 * 51], 50, 51)?,
-      mode,
-    ))
-  })?;
+  let grid = match mega_grid() {
+    Ok(grid) => InteractiveGrid::from_grid(grid, mode),
+    Err(_) => InteractiveGrid::new(mode, 50, 51)?,
+  };
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
   ev.run_event_loop(|scene, window, _| {
@@ -162,7 +153,7 @@ fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
     Ok(())
   })?;
 
-  {
+  if true {
     let grid: &InteractiveGrid = ev.scene().entity(grid_uid)?;
     let grid_serialized = bitcode::encode(grid.grid());
     let mut file = File::create(GRID_PATH)?;
@@ -174,8 +165,8 @@ fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
 
 fn show_dlx_iters() -> TermgameResult {
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let grid = XWord::build_grid(partial_sunday())?;
-  // let grid = mega_grid()?;
+  // let grid = XWord::build_grid(partial_sunday())?;
+  let grid = mega_grid()?;
 
   // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
