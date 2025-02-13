@@ -5,6 +5,8 @@ use std::{
   fmt::Display,
   iter::{self, once},
   rc::Rc,
+  sync::{Arc, Mutex},
+  thread,
 };
 
 use itertools::Itertools;
@@ -23,14 +25,14 @@ use crate::word_bank::{LetterFrequencyMap, WordBank};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueNumber {
-  number: u32,
-  is_row: bool,
+  pub number: u32,
+  pub is_row: bool,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordCluePosition {
-  pos: Pos,
-  clue_number: XWordClueNumber,
+  pub pos: Pos,
+  pub clue_number: XWordClueNumber,
 }
 
 /// Tiles indicate letters filled in on the board by a clue. Each letter
@@ -135,7 +137,7 @@ trait XWordInternal {
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)>;
 
   fn words_excluding_existing(&self) -> impl Iterator<Item = (u32, &'_ str)> {
-    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    let existing_words: HashSet<_> = self.all_prefilled_words().map(|(_, word)| word).collect();
     self
       .words()
       .filter(move |&(_, word)| !existing_words.contains(word))
@@ -146,7 +148,7 @@ trait XWordInternal {
   fn universal_words(&self) -> impl Iterator<Item = &'_ str>;
 
   fn universal_words_excluding_existing(&self) -> impl Iterator<Item = &'_ str> {
-    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    let existing_words: HashSet<_> = self.all_prefilled_words().map(|(_, word)| word).collect();
     self
       .universal_words()
       .filter(move |&word| !existing_words.contains(word))
@@ -246,6 +248,30 @@ trait XWordInternal {
       .map(|entry| XWordEntry { pos: entry.pos.transpose(), ..entry })
   }
 
+  /// Map that tracks (clue_pos, idx in word) for each pos is in the row/col clue it resides.
+  fn build_clue_pos_map(&self) -> HashMap<(Pos, bool), (XWordCluePosition, u32)> {
+    self
+      .iter_board_entries()
+      .fold(HashMap::new(), |mut map, (clue_pos, length)| {
+        for idx in 0..length {
+          let diff = if clue_pos.clue_number.is_row {
+            Diff { x: 1, y: 0 }
+          } else {
+            Diff { x: 0, y: 1 }
+          };
+          let old_val = map.insert(
+            (
+              clue_pos.pos + diff * (idx as i32),
+              clue_pos.clue_number.is_row,
+            ),
+            (clue_pos, idx),
+          );
+          debug_assert!(old_val.is_none());
+        }
+        map
+      })
+  }
+
   fn clue_letter_positions_unbounded<'a>(
     &self,
     clue_pos: XWordCluePosition,
@@ -338,7 +364,7 @@ trait XWordInternal {
       )
   }
 
-  fn all_prefilled_words(&self) -> impl Iterator<Item = String> + '_ {
+  fn all_prefilled_words(&self) -> impl Iterator<Item = (XWordCluePosition, String)> + '_ {
     self.iter_board_entries().flat_map(|(clue_pos, length)| {
       self
         .clue_letter_positions(clue_pos, length)
@@ -351,16 +377,21 @@ trait XWordInternal {
             _ => None,
           }
         })
+        .map(|word| (clue_pos, word))
     })
   }
 
-  fn letter_likelihood_score(
-    &self,
-    letter: char,
-    pos: Pos,
-    is_row: bool,
-    frequency_map: &LetterFrequencyMap,
-  ) -> f32 {
+  fn word_is_compatible(&self, clue_pos: XWordCluePosition, word: &str) -> bool {
+    self
+      .word_letter_positions(clue_pos, word)
+      .all(|(c, pos)| match self.board().get(pos) {
+        Some(XWordTile::Empty) => true,
+        Some(&XWordTile::Letter(letter)) => letter == c,
+        _ => unreachable!(),
+      })
+  }
+
+  fn idx_len_for_letter(&self, letter_pos: Pos, is_row: bool) -> (u32, u32) {
     let diff = if is_row {
       Diff { x: 1, y: 0 }
     } else {
@@ -370,7 +401,7 @@ trait XWordInternal {
       .take_while(|&delta| {
         self
           .board()
-          .get(pos - delta * diff)
+          .get(letter_pos - delta * diff)
           .is_some_and(|tile| tile.available())
       })
       .count() as u32;
@@ -380,12 +411,34 @@ trait XWordInternal {
         .take_while(|&delta| {
           self
             .board()
-            .get(pos + delta * diff)
+            .get(letter_pos + delta * diff)
             .is_some_and(|tile| tile.available())
         })
         .count() as u32;
 
-    frequency_map.likelihood(word_length, (letter, letter_idx))
+    (letter_idx, word_length)
+  }
+
+  fn letter_likelihood_score(
+    &self,
+    letter: char,
+    letter_pos: Pos,
+    is_row: bool,
+    frequency_map: &LetterFrequencyMap,
+  ) -> f32 {
+    let (letter_idx, word_length) = self.idx_len_for_letter(letter_pos, is_row);
+
+    let diff = if is_row {
+      Diff { x: 1, y: 0 }
+    } else {
+      Diff { x: 0, y: 1 }
+    };
+    frequency_map.likelihood(
+      letter_pos - diff * (letter_idx as i32),
+      is_row,
+      word_length,
+      (letter, letter_idx),
+    )
   }
 
   fn word_likelihood_score(
@@ -421,7 +474,30 @@ trait XWordInternal {
   }
 
   fn build_frequency_map(&self) -> LetterFrequencyMap {
-    LetterFrequencyMap::from_words(self.universal_words_excluding_existing())
+    let mut freq_map = LetterFrequencyMap::from_words(self.universal_words_excluding_existing());
+
+    for (clue_pos, length) in self.iter_board_entries() {
+      if self.clue_letter_positions(clue_pos, length).any(|pos| {
+        self
+          .board()
+          .get(pos)
+          .is_some_and(|tile| matches!(tile, XWordTile::Letter(_)))
+      }) {
+        for word in freq_map
+          .words_with_length(length)
+          .filter(|word| self.word_is_compatible(clue_pos, word))
+          .collect_vec()
+        {
+          freq_map.add_special_case(clue_pos, word.to_owned());
+        }
+      }
+    }
+
+    for (clue_pos, word) in self.all_prefilled_words() {
+      freq_map.add_special_case(clue_pos, word);
+    }
+
+    freq_map
   }
 
   fn build_word_assignments_from_entries(
@@ -431,6 +507,8 @@ trait XWordInternal {
     let frequency_map = self.build_frequency_map();
     // TODO construct this map in WordBank
     let mut word_map: HashMap<_, _> = self.words().map(|(id, word)| (word, (id, 0))).collect();
+
+    let clue_pos_map = self.build_clue_pos_map();
 
     let mut clue_pos_id = 0;
 
@@ -447,15 +525,7 @@ trait XWordInternal {
 
         frequency_map
           .words_with_length(length)
-          .filter(|word| {
-            self
-              .word_letter_positions(clue_pos, word)
-              .all(|(c, pos)| match self.board().get(pos) {
-                Some(XWordTile::Empty) => true,
-                Some(&XWordTile::Letter(letter)) => letter == c,
-                _ => unreachable!(),
-              })
-          })
+          .filter(|word| self.word_is_compatible(clue_pos, word))
           .flat_map(|word| {
             let (id, clue_instance_id) = word_map.get_mut(word)?;
             let id = *id;
@@ -491,9 +561,33 @@ trait XWordInternal {
                 }),
             );
 
-            Some((
+            // TODO: This is a rough heuristic, not sure if this will work...
+            if !Self::should_fill_board() {
+              constraints.extend(
+                self
+                  .clue_letter_positions(clue_pos, length)
+                  .flat_map(|pos| {
+                    if let Some((other_clue_pos, _)) =
+                      clue_pos_map.get(&(pos, !clue_pos.clue_number.is_row))
+                    {
+                      let constraint = Constraint::Secondary(ColorItem::new(
+                        XWordConstraint::ClueNumber(other_clue_pos.clue_number),
+                        clue_pos_id,
+                      ));
+                      clue_pos_id += 1;
+                      Some(constraint)
+                    } else {
+                      debug_assert!(false);
+                      None
+                    }
+                  }),
+              );
+            }
+
+            let likelihood_score = self.word_likelihood_score(word, clue_pos, &frequency_map);
+            (likelihood_score != 0.).then_some((
               (XWordClueAssignment { id, clue_pos }, constraints),
-              self.word_likelihood_score(word, clue_pos, &frequency_map),
+              likelihood_score,
             ))
           })
           .collect()
@@ -838,9 +932,69 @@ where
       .collect()
   }
 
-  pub fn solve_parallel(&self) -> TermgameResult<Grid<XWordTile>> {
-    // Should use tokio primitives
-    todo!();
+  pub fn solve_parallel(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    if !self
+      .all_prefilled_words()
+      .all(|(_, word)| self.bank.borrow().has(&word))
+    {
+      return Err(
+        TermgameError::Internal("Not all prefilled words are in dictionary.".to_owned()).into(),
+      );
+    }
+
+    let done = Arc::new(Mutex::new(false));
+
+    println!("Spawning");
+    let join_handles = self
+      .build_dlx_solvers()
+      .into_iter()
+      .map(|(partition_id, mut dlx)| {
+        let done = done.clone();
+        thread::spawn(move || {
+          println!("Spawning {partition_id}");
+          if let Some(solution) =
+            dlx
+              .find_solutions_stepwise()
+              .with_names()
+              .find_map(|partial_soln| {
+                if *done.lock().ok()? {
+                  return Some(None);
+                }
+
+                match partial_soln {
+                  StepwiseDlxIterResult::Step(_) => None,
+                  StepwiseDlxIterResult::Solution(solution) => {
+                    println!("Guy {partition_id} is solved!");
+                    Some(Some(solution))
+                  }
+                }
+              })
+          {
+            solution
+          } else {
+            *done.lock().ok()? = true;
+            println!("Guy {partition_id} has no solution");
+            None
+          }
+        })
+      })
+      .collect_vec();
+
+    join_handles
+      .into_iter()
+      .map(|join_handle| join_handle.join())
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|_| TermgameError::Internal("Failed to join thread".to_owned()))?
+      .into_iter()
+      .try_fold(Some(self.board().clone()), |board, result| {
+        if let Some(board) = board {
+          if let Some(solution) = result {
+            let grid = self.build_grid_from_assignments(board, solution)?;
+            return Ok(Some(grid));
+          }
+        }
+        Ok(None)
+      })
   }
 
   /// TODO: return DlxStepwiseIterResult so WithRequired stepwise iter can halt
@@ -934,9 +1088,11 @@ where
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
     if !self
       .all_prefilled_words()
-      .all(|word| self.bank.borrow().has(&word))
+      .all(|(_, word)| self.bank.borrow().has(&word))
     {
-      return Ok(None);
+      return Err(
+        TermgameError::Internal("Not all prefilled words are in dictionary.".to_owned()).into(),
+      );
     }
 
     self
@@ -1058,17 +1214,6 @@ impl XWordWithRequired {
       },
     )
   }
-
-  pub fn build_grid_from_assignments<I>(
-    &self,
-    answer_grid: Grid<XWordTile>,
-    iter: I,
-  ) -> TermgameResult<Grid<XWordTile>>
-  where
-    I: IntoIterator<Item = XWordClueAssignment>,
-  {
-    (XWordInternal::build_grid_from_assignments)(self, answer_grid, iter)
-  }
 }
 
 impl XWordInternal for XWordWithRequired {
@@ -1100,7 +1245,10 @@ impl XWordInternal for XWordWithRequired {
 
 impl XWordTraits for XWordWithRequired {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
-    if !self.all_prefilled_words().all(|word| self.bank.has(&word)) {
+    if !self
+      .all_prefilled_words()
+      .all(|(_, word)| self.bank.has(&word))
+    {
       return Ok(None);
     }
 
@@ -1112,7 +1260,7 @@ impl XWordTraits for XWordWithRequired {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
           .map(|board| XWordImpl::<Rc<WordBank>>::with_bank(board, self.bank.clone()))
-          .and_then(|xword| xword.solve())
+          .and_then(|xword| xword.solve_parallel())
           .transpose()
       })
       .transpose()
@@ -1306,27 +1454,71 @@ mod tests {
   }
 
   #[gtest]
+  fn test_clue_pos_map() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "________X_______X______
+         ________X_______X______
+         ________X_______X______
+         ___X______X____X___X___
+         ____XX_____X______X____
+         ______X_____XX____X____
+         XXX____X____X____X_____
+         ___X_____X______X______
+         ________X_____X_____XXX
+         _____X_______XXX_______
+         _____XX_____X______X___
+         ____X_____________X____
+         ___X______X_____XX_____
+         _______XXX_______X_____
+         XXX_____X_____X________
+         ______X______X_____X___
+         _____X____X____X____XXX
+         ____X____XX_____X______
+         ____X______X_____XX____
+         ___X___X____X______X___
+         ______X_______X________
+         ______X_______X________
+         ______X_______X________",
+      )?,
+      HashSet::new(),
+    )?;
+
+    let clue_pos_map = xword.build_clue_pos_map();
+    for (clue_pos, length) in xword.iter_board_entries() {
+      for (idx, pos) in xword.clue_letter_positions(clue_pos, length).enumerate() {
+        assert_that!(
+          clue_pos_map.get(&(pos, clue_pos.clue_number.is_row)),
+          some(eq(&(clue_pos, idx as u32)))
+        );
+      }
+    }
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_letter_frequency_map_likelihood() {
     let map = LetterFrequencyMap::from_words(["a", "b", "c", "ab", "ac", "cc"]);
 
-    expect_float_eq!(map.likelihood(1, ('a', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(1, ('b', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(1, ('c', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(1, ('d', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('a', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('b', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('c', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 1, ('d', 0)), 0.);
 
-    expect_float_eq!(map.likelihood(2, ('a', 0)), 2. / 3.);
-    expect_float_eq!(map.likelihood(2, ('b', 0)), 0.);
-    expect_float_eq!(map.likelihood(2, ('c', 0)), 1. / 3.);
-    expect_float_eq!(map.likelihood(2, ('d', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('a', 0)), 2. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('b', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('c', 0)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('d', 0)), 0.);
 
-    expect_float_eq!(map.likelihood(2, ('a', 1)), 0.);
-    expect_float_eq!(map.likelihood(2, ('b', 1)), 1. / 3.);
-    expect_float_eq!(map.likelihood(2, ('c', 1)), 2. / 3.);
-    expect_float_eq!(map.likelihood(2, ('d', 1)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('a', 1)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('b', 1)), 1. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('c', 1)), 2. / 3.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 2, ('d', 1)), 0.);
 
-    expect_float_eq!(map.likelihood(3, ('a', 0)), 0.);
-    expect_float_eq!(map.likelihood(3, ('b', 0)), 0.);
-    expect_float_eq!(map.likelihood(3, ('c', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 3, ('a', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 3, ('b', 0)), 0.);
+    expect_float_eq!(map.likelihood(Pos::zero(), false, 3, ('c', 0)), 0.);
   }
 
   #[gtest]
@@ -1473,6 +1665,36 @@ mod tests {
   }
 
   #[gtest]
+  fn test_letter_likelihood_score_with_existing() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "___
+         __a",
+      )?,
+      [
+        "aa", "ab", "ac", "ba", //
+        "aab", "aba", "aca", "bda", //
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
+    )?;
+
+    let frequency_map = xword.build_frequency_map();
+
+    // First-position letters in columns across the top row:
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 2, y: 0 }, false, &frequency_map),
+      1. / 2.
+    );
+    expect_float_eq!(
+      xword.letter_likelihood_score('a', Pos { x: 0, y: 1 }, true, &frequency_map),
+      2. / 3.
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_word_likelihood_score() -> TermgameResult {
     let xword = XWord::from_grid(
       XWord::build_grid(
@@ -1584,7 +1806,9 @@ mod tests {
         "__
          X_",
       )?,
-      ["ab", "c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "c", "a", "b", "aa", "bb", "cc"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1599,7 +1823,7 @@ mod tests {
       .collect();
     expect_that!(
       word_assignments,
-      unordered_elements_are![
+      contains_each![
         (
           pat!(XWordClueAssignment {
             id: &ab_id,
@@ -1710,7 +1934,9 @@ mod tests {
          X_",
       )?,
       ["ab"].into_iter().map(|str| str.to_owned()),
-      ["ab", "c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "c", "a", "aa", "bb", "b"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1804,7 +2030,9 @@ mod tests {
         "__
          X_",
       )?,
-      ["ab", "ca", "c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "ca", "c", "a", "bb", "aa", "ax", "ay", "az"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1820,8 +2048,11 @@ mod tests {
 
     let first_row_assignments: Vec<_> = word_assignments
       .iter()
-      .filter_map(|(XWordClueAssignment { clue_pos, .. }, constraints)| {
-        (clue_pos.pos == Pos { x: 0, y: 0 } && clue_pos.clue_number.is_row).then_some(constraints)
+      .filter_map(|(XWordClueAssignment { clue_pos, id }, constraints)| {
+        (clue_pos.pos == Pos { x: 0, y: 0 }
+          && clue_pos.clue_number.is_row
+          && (*id == ab_id || *id == ca_id))
+          .then_some(constraints)
       })
       .cloned()
       .collect();
@@ -2086,7 +2317,9 @@ mod tests {
 
     expect_that!(
       xword.solve_expected(),
-      err(displays_as(contains_substring("No solution found")))
+      err(displays_as(contains_substring(
+        "Not all prefilled words are in dictionary"
+      )))
     );
 
     Ok(())
@@ -2278,7 +2511,9 @@ mod tests {
          __tXX",
       )?,
       ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
-      ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
+      ["dog", "got", "cof", "d", "ova", "to", "o", "f"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
@@ -2473,7 +2708,9 @@ mod tests {
     let xword = XWordWithRequired::from_grid(
       grid.clone(),
       ["cde"].into_iter().map(|str| str.to_owned()),
-      ["cde"].into_iter().map(|str| str.to_owned()),
+      ["cde", "ccccc", "ddddd", "eeeee"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let mut stepwise_iter = xword
@@ -2568,6 +2805,8 @@ mod tests {
         .map(|str| str.to_owned()),
     )?;
 
+    assert_that!(xword.solve_expected(), ok(anything()));
+
     let mut stepwise_iter = xword.stepwise_board_iter();
 
     assert_that!(
@@ -2657,39 +2896,6 @@ mod tests {
       )?))
     );
 
-    // TODO solver should end iteration.
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "c____
-         d____
-         e____",
-      )?))
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "_c___
-         _d___
-         _e___",
-      )?))
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "___c_
-         ___d_
-         ___e_",
-      )?))
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(eq(&XWord::build_grid(
-        "____c
-         ____d
-         ____e",
-      )?))
-    );
     assert_that!(stepwise_iter.next(), none());
 
     Ok(())
