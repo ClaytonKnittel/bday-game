@@ -1,6 +1,6 @@
 use std::{
   fmt::Display,
-  ops::{Add, Mul, Neg, Sub},
+  ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -15,10 +15,7 @@ impl Pos {
   }
 
   pub const fn transpose(&self) -> Self {
-    Self {
-      x: self.y,
-      y: self.x,
-    }
+    Self { x: self.y, y: self.x }
   }
 }
 
@@ -26,10 +23,7 @@ impl Sub for Pos {
   type Output = Diff;
 
   fn sub(self, rhs: Self) -> Diff {
-    Diff {
-      x: self.x - rhs.x,
-      y: self.y - rhs.y,
-    }
+    Diff { x: self.x - rhs.x, y: self.y - rhs.y }
   }
 }
 
@@ -37,10 +31,14 @@ impl Sub<Diff> for Pos {
   type Output = Self;
 
   fn sub(self, rhs: Diff) -> Self {
-    Self {
-      x: self.x - rhs.x,
-      y: self.y - rhs.y,
-    }
+    Self { x: self.x - rhs.x, y: self.y - rhs.y }
+  }
+}
+
+impl SubAssign<Diff> for Pos {
+  fn sub_assign(&mut self, rhs: Diff) {
+    self.x -= rhs.x;
+    self.y -= rhs.y;
   }
 }
 
@@ -48,10 +46,14 @@ impl Add<Diff> for Pos {
   type Output = Self;
 
   fn add(self, rhs: Diff) -> Self {
-    Self {
-      x: self.x + rhs.x,
-      y: self.y + rhs.y,
-    }
+    Self { x: self.x + rhs.x, y: self.y + rhs.y }
+  }
+}
+
+impl AddAssign<Diff> for Pos {
+  fn add_assign(&mut self, rhs: Diff) {
+    self.x += rhs.x;
+    self.y += rhs.y;
   }
 }
 
@@ -71,10 +73,7 @@ impl Add for Diff {
   type Output = Self;
 
   fn add(self, rhs: Self) -> Self {
-    Self {
-      x: self.x + rhs.x,
-      y: self.y + rhs.y,
-    }
+    Self { x: self.x + rhs.x, y: self.y + rhs.y }
   }
 }
 
@@ -82,10 +81,7 @@ impl Mul<Diff> for i32 {
   type Output = Diff;
 
   fn mul(self, rhs: Diff) -> Diff {
-    Diff {
-      x: self * rhs.x,
-      y: self * rhs.y,
-    }
+    Diff { x: self * rhs.x, y: self * rhs.y }
   }
 }
 
@@ -93,10 +89,7 @@ impl Mul<i32> for Diff {
   type Output = Diff;
 
   fn mul(self, rhs: i32) -> Self {
-    Self {
-      x: self.x * rhs,
-      y: self.y * rhs,
-    }
+    Self { x: self.x * rhs, y: self.y * rhs }
   }
 }
 
@@ -104,10 +97,7 @@ impl Neg for Diff {
   type Output = Diff;
 
   fn neg(self) -> Self::Output {
-    Self {
-      x: -self.x,
-      y: -self.y,
-    }
+    Self { x: -self.x, y: -self.y }
   }
 }
 

@@ -2,13 +2,15 @@ use std::{borrow::Borrow, collections::HashMap};
 
 use bitcode::{Decode, Encode};
 use itertools::Itertools;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use util::error::{TermgameError, TermgameResult};
 
 #[derive(Encode, Decode, PartialEq, Eq, Hash)]
 struct DictEntry {
   publisher: String,
   publish_year: u16,
-  clues: String,
+  clue: String,
 }
 
 impl DictEntry {
@@ -25,10 +27,17 @@ impl DictEntry {
     let word = items[2];
     let word_len = word.chars().count();
     if word_len <= 2
-      || !word.chars().all(|c| c.is_alphabetic())
+      || !word.chars().all(|c| c.is_ascii_alphabetic())
       || word.chars().all(|c| c.to_ascii_lowercase() == 'x')
       || (word.chars().all_equal() && word_len > 3)
     {
+      return Ok(None);
+    }
+
+    static SELF_REF_CLUE_RE: Lazy<Regex> =
+      Lazy::new(|| Regex::new(r"\d+[ -]?([aA]cross|[dD]own)").unwrap());
+    let clue = items[3..].join(" ").to_owned();
+    if SELF_REF_CLUE_RE.is_match(&clue) {
       return Ok(None);
     }
 
@@ -37,7 +46,7 @@ impl DictEntry {
       Self {
         publisher: items[0].to_owned(),
         publish_year: items[1].parse()?,
-        clues: items[3..].join(" ").to_owned(),
+        clue,
       },
     )))
   }
@@ -68,6 +77,20 @@ impl XWordDict {
         },
       )?,
     })
+  }
+
+  pub fn add_clue(&mut self, word: String, clue_txt: String) {
+    *self
+      .dict
+      .entry(word)
+      .or_default()
+      .entry(DictEntry {
+        publisher: "n/a".to_owned(),
+        publish_year: 2025,
+        clue: clue_txt,
+      })
+      // Make the word occur many times so it will alaways be selected in top_n_words
+      .or_default() += 100_000;
   }
 
   pub fn top_n_words(&self, n: usize) -> Vec<&str> {

@@ -13,16 +13,13 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use crossword::Crossword;
-use interactive_grid::InteractiveGrid;
+use interactive_grid::{InteractiveGrid, InteractiveGridMode};
 use pc::Pc;
 use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::{
-  dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
-  xword::{XWord, XWordTile, XWordTraits, XWordWithRequired},
-};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -41,12 +38,6 @@ struct Args {
   mode: RunMode,
 }
 
-fn read_grid(path: &str) -> TermgameResult<InteractiveGrid> {
-  Ok(InteractiveGrid::from_grid(bitcode::decode(&fs::read(
-    path,
-  )?)?))
-}
-
 fn read_dict() -> TermgameResult<XWordDict> {
   const DICT_PATH: &str = "./xword_gen/dict.bin";
   Ok(bitcode::decode(&fs::read(DICT_PATH)?)?)
@@ -55,7 +46,7 @@ fn read_dict() -> TermgameResult<XWordDict> {
 fn build_dict() -> TermgameResult<HashSet<String>> {
   Ok(
     read_dict()?
-      .top_n_words(150000)
+      .top_n_words(150_000)
       .into_iter()
       .map(|str| str.to_owned())
       .collect(),
@@ -132,19 +123,16 @@ const fn partial_sunday() -> &'static str {
    ______X_______X________"
 }
 
-fn mega_grid() -> TermgameResult<Grid<bool>> {
-  Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
+fn mega_grid() -> TermgameResult<Grid<XWordTile>> {
+  Ok(bitcode::decode(&fs::read(GRID_PATH)?)?)
 }
 
-fn interactive_grid() -> TermgameResult {
+fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  let grid = read_grid(GRID_PATH).or_else(|_| -> TermgameResult<_> {
-    Ok(InteractiveGrid::from_grid(Grid::from_vec(
-      vec![XWordTile::Empty; 50 * 51],
-      50,
-      51,
-    )?))
-  })?;
+  let grid = match mega_grid() {
+    Ok(grid) => InteractiveGrid::from_grid(grid, mode),
+    Err(_) => InteractiveGrid::new(mode, 50, 51)?,
+  };
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
   ev.run_event_loop(|scene, window, _| {
@@ -165,7 +153,7 @@ fn interactive_grid() -> TermgameResult {
     Ok(())
   })?;
 
-  if false {
+  if true {
     let grid: &InteractiveGrid = ev.scene().entity(grid_uid)?;
     let grid_serialized = bitcode::encode(grid.grid());
     let mut file = File::create(GRID_PATH)?;
@@ -177,16 +165,16 @@ fn interactive_grid() -> TermgameResult {
 
 fn show_dlx_iters() -> TermgameResult {
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let grid = XWord::build_grid(partial_sunday())?;
-  // let grid = mega_grid()?;
+  // let grid = XWord::build_grid(partial_sunday())?;
+  let grid = mega_grid()?;
 
   // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 4] = [
-    "clayton", "eugenia", "andrew", "jackson", // "matt", "bchan", "austen", "paul",
-    // "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
-    // "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
-    // "christina",
+  const REQUIRED: [&str; 25] = [
+    "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul",
+    "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
+    "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
+    "christina",
   ];
 
   let xword_solver = XWordWithRequired::from_grid(
@@ -268,7 +256,7 @@ fn play_puzzle() -> TermgameResult {
 fn run() -> TermgameResult {
   let args = Args::parse();
   match args.mode {
-    RunMode::InteractiveGrid => interactive_grid(),
+    RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::DisjointRegions),
     RunMode::Progress => show_dlx_iters(),
     RunMode::Play => play_puzzle(),
   }

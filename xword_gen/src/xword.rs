@@ -133,9 +133,24 @@ impl ProblemParameters {
 
 trait XWordInternal {
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)>;
+
+  fn words_excluding_existing(&self) -> impl Iterator<Item = (u32, &'_ str)> {
+    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    self
+      .words()
+      .filter(move |&(_, word)| !existing_words.contains(word))
+  }
+
   fn find_word(&self, word_id: u32) -> Option<&'_ str>;
 
   fn universal_words(&self) -> impl Iterator<Item = &'_ str>;
+
+  fn universal_words_excluding_existing(&self) -> impl Iterator<Item = &'_ str> {
+    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    self
+      .universal_words()
+      .filter(move |&word| !existing_words.contains(word))
+  }
 
   fn board(&self) -> &Grid<XWordTile>;
 
@@ -290,7 +305,7 @@ trait XWordInternal {
 
   fn build_clue_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
     self
-      .words()
+      .words_excluding_existing()
       .map(|(id, _)| (XWordConstraint::Clue { id }, Self::word_constraint_type()))
   }
 
@@ -321,6 +336,22 @@ trait XWordInternal {
             )
           }),
       )
+  }
+
+  fn all_prefilled_words(&self) -> impl Iterator<Item = String> + '_ {
+    self.iter_board_entries().flat_map(|(clue_pos, length)| {
+      self
+        .clue_letter_positions(clue_pos, length)
+        .try_fold("".to_owned(), |mut word_accum, pos| {
+          match self.board().get(pos) {
+            Some(&XWordTile::Letter(letter)) => {
+              word_accum.push(letter);
+              Some(word_accum)
+            }
+            _ => None,
+          }
+        })
+    })
   }
 
   fn letter_likelihood_score(
@@ -390,7 +421,7 @@ trait XWordInternal {
   }
 
   fn build_frequency_map(&self) -> LetterFrequencyMap {
-    LetterFrequencyMap::from_words(self.universal_words())
+    LetterFrequencyMap::from_words(self.universal_words_excluding_existing())
   }
 
   fn build_word_assignments_from_entries(
@@ -398,12 +429,11 @@ trait XWordInternal {
     board_entries: impl Iterator<Item = (XWordCluePosition, u32)>,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
     let frequency_map = self.build_frequency_map();
+    // TODO construct this map in WordBank
     let mut word_map: HashMap<_, _> = self.words().map(|(id, word)| (word, (id, 0))).collect();
 
     let mut clue_pos_id = 0;
 
-    // All constraints are grouped by board entry, and within each category
-    // sorted by a "fitness" score of the clue in that position.
     board_entries
       .flat_map(move |(clue_pos, length)| -> Vec<_> {
         let constraint_label = XWordConstraint::ClueNumber(clue_pos.clue_number);
@@ -667,6 +697,28 @@ impl<B> XWordImpl<B>
 where
   B: Borrow<WordBank>,
 {
+  // TODO delete
+  pub fn list(&self) {
+    let frequency_map = self.build_frequency_map();
+    for (clue_pos, length) in self.iter_board_entries() {
+      let words = frequency_map
+        .words_with_length(length)
+        .sorted_by(|word1, word2| {
+          self
+            .word_likelihood_score(word2, clue_pos, &frequency_map)
+            .partial_cmp(&self.word_likelihood_score(word1, clue_pos, &frequency_map))
+            .unwrap_or(Ordering::Equal)
+        })
+        .take(10)
+        .collect_vec();
+
+      println!(
+        "{} ({}): {:?}",
+        clue_pos.pos, clue_pos.clue_number.is_row, words
+      );
+    }
+  }
+
   fn entries_for_partition<'a>(
     &'a self,
     partition_id: Pos,
@@ -698,7 +750,7 @@ where
     })
   }
 
-  fn build_partition_uf(&self) -> UnionFind<Pos> {
+  pub fn build_partition_uf(&self) -> UnionFind<Pos> {
     let mut uf = UnionFind::from_keys(self.board().positions().filter(|&pos| self.empty(pos)));
     for (XWordEntry { number, pos, length }, is_row) in self
       .iterate_row_clues()
@@ -817,9 +869,11 @@ where
         return None;
       }
 
+      let mut any_step = false;
       let selected_items = dlx_iters.iter_mut().flat_map(|iter| match iter {
         IterOrSolution::Iter(dlx_iter) => {
           if let Some(result) = dlx_iter.next() {
+            any_step = true;
             match result {
               StepwiseDlxIterResult::Step(solution) => solution,
               StepwiseDlxIterResult::Solution(solution) => {
@@ -834,12 +888,11 @@ where
         }
         IterOrSolution::Solution(solution) => solution.clone(),
       });
-      Some(
-        s.borrow()
-          .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
-          .ok(),
-      )
-      .flatten()
+      let grid = s
+        .borrow()
+        .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
+        .ok();
+      any_step.then_some(grid).flatten()
     })
   }
 }
@@ -879,13 +932,23 @@ where
   B: Borrow<WordBank>,
 {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    if !self
+      .all_prefilled_words()
+      .all(|word| self.bank.borrow().has(&word))
+    {
+      return Ok(None);
+    }
+
     self
       .build_dlx_solvers()
       .into_values()
       .try_fold(Some(self.board().clone()), |board, mut dlx| {
         if let Some(board) = board {
           if let Some(solution) = dlx.find_solutions().with_names().next() {
-            return Ok(Some(self.build_grid_from_assignments(board, solution)?));
+            // println!("Solution!");
+            let grid = self.build_grid_from_assignments(board, solution)?;
+            // println!("{}", grid);
+            return Ok(Some(grid));
           }
         }
         Ok(None)
@@ -916,15 +979,8 @@ impl XWordWithRequired {
   ) -> TermgameResult<Self> {
     let required_words = WordBank::from_words(required_words);
 
-    let required_words_set: HashSet<_> = required_words
-      .all_words()
-      .map(|word| word.to_owned())
-      .collect();
-    let bank = Rc::new(WordBank::from_words(
-      bank
-        .into_iter()
-        .filter(|word| !required_words_set.contains(word)),
-    ));
+    let bank = Rc::new(WordBank::from_words(bank));
+    debug_assert!(required_words.all_words().all(|word| bank.has(word)));
 
     Ok(Self { board, bank, required_words })
   }
@@ -987,7 +1043,11 @@ impl XWordWithRequired {
                 .ok()?,
               s.borrow().bank.clone(),
             );
-            *inner = Some(Box::new(xword.into_stepwise_iter()));
+            let mut inner_iter = Box::new(xword.into_stepwise_iter());
+            // Consume the first iteration, which always yields an empty
+            // partial solution.
+            inner_iter.next();
+            *inner = Some(inner_iter);
             solution
           }
         };
@@ -1040,6 +1100,10 @@ impl XWordInternal for XWordWithRequired {
 
 impl XWordTraits for XWordWithRequired {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    if !self.all_prefilled_words().all(|word| self.bank.has(&word)) {
+      return Ok(None);
+    }
+
     self
       .build_dlx_solver()
       .into_solutions()
@@ -1069,7 +1133,7 @@ mod tests {
 
   use std::{collections::HashSet, iter::once};
 
-  use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType};
+  use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
   use googletest::prelude::*;
   use util::{
     error::TermgameResult,
@@ -1077,12 +1141,7 @@ mod tests {
     pos::Pos,
   };
 
-  use crate::xword::{
-    LetterFrequencyMap, XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint,
-    XWordInternal, XWordTile, XWordTraits, XWordWithRequired, NUM_TILE_BITS, NUM_TILE_SELECTIONS,
-  };
-
-  use super::{XWord, XWordTileConstraint};
+  use crate::xword::*;
 
   #[gtest]
   fn test_empty() {
@@ -1651,7 +1710,7 @@ mod tests {
          X_",
       )?,
       ["ab"].into_iter().map(|str| str.to_owned()),
-      ["c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "c"].into_iter().map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1900,7 +1959,7 @@ mod tests {
          X_",
       )?,
       ["ab"].into_iter().map(|str| str.to_owned()),
-      ["bc"].into_iter().map(|str| str.to_owned()),
+      ["bc", "ab"].into_iter().map(|str| str.to_owned()),
     )?;
 
     let params = xword.build_params();
@@ -2002,6 +2061,86 @@ mod tests {
   }
 
   #[gtest]
+  fn test_prefilled() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid("cat")?,
+      ["cat", "c", "a", "t"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+    let expected_solution =
+      Grid::from_vec(vec![Letter('c'), Letter('a'), Letter('t')], 3, 1).unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_prefilled_missing() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid("cat")?,
+      ["c", "a", "t"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_fills_whole_words() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "___
+         ___",
+      )?,
+      ["bob", "cat"].into_iter().map(|str| str.to_owned()),
+      ["cb", "ao", "tb", "bob", "cat"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        Letter('c'), Letter('a'), Letter('t'),
+        Letter('b'), Letter('o'), Letter('b'),
+      ], 3, 2,
+    )
+    .unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_cant_satisfy() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "___
+         ___",
+      )?,
+      ["bob", "cat"].into_iter().map(|str| str.to_owned()),
+      ["bob", "cat"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_mini() -> TermgameResult {
     let xword = XWord::from_grid(
       XWord::build_grid(
@@ -2041,10 +2180,10 @@ mod tests {
   fn test_mini_with_partial() -> TermgameResult {
     let xword = XWord::from_grid(
       XWord::build_grid(
-        "Xa
-         _b",
+        "Xaz
+         _bX",
       )?,
-      ["a", "xa", "x", "c", "aa", "cb"]
+      ["xa", "x", "c", "aa", "ab", "az", "z", "cb"]
         .into_iter()
         .map(|str| str.to_owned()),
     )?;
@@ -2056,9 +2195,9 @@ mod tests {
     #[rustfmt::skip]
     let expected_solution = Grid::from_vec(
       vec![
-        Wall,        Letter('a'),
-        Letter('c'), Letter('b'),
-      ], 2, 2,
+        Wall,        Letter('a'), Letter('z'),
+        Letter('c'), Letter('b'), Wall,
+      ], 3, 2,
     ).unwrap();
     expect_eq!(solution, expected_solution);
 
@@ -2073,9 +2212,11 @@ mod tests {
          __aX_
          __tX_",
       )?,
-      ["hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y"]
-        .into_iter()
-        .map(|str| str.to_owned()),
+      [
+        "hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y", "cat",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve_expected()?;
@@ -2104,9 +2245,11 @@ mod tests {
          __tX",
       )?,
       ["ttt"].into_iter().map(|str| str.to_owned()),
-      ["hat", "aba", "tat", "ba", "bt", "h", "co", "o"]
-        .into_iter()
-        .map(|str| str.to_owned()),
+      [
+        "hat", "aba", "tat", "ba", "bt", "h", "co", "o", "cat", "ttt",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve_expected()?;
@@ -2135,7 +2278,7 @@ mod tests {
          __tXX",
       )?,
       ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
-      [],
+      ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
     )?;
 
     let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
@@ -2175,6 +2318,379 @@ mod tests {
         })
       ]
     );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_excludes_existing() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab", "cb", "b", "c"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_excludes_existing_with_solution() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab", "cb", "b", "c", "ax", "yx", "y"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    assert_that!(
+      xword.solve_expected(),
+      ok(eq(&XWord::build_grid(
+        "Xy
+         ax
+         bX",
+      )?))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_excludes_existing() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab"].into_iter().map(|str| str.to_owned()),
+      ["ab", "ac", "b", "c", "cb"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_excludes_existing_with_solution() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab", "ax"].into_iter().map(|str| str.to_owned()),
+      ["ab", "cb", "b", "c", "ax", "yx", "y"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    assert_that!(
+      xword.solve_expected(),
+      ok(eq(&XWord::build_grid(
+        "Xy
+         ax
+         bX",
+      )?))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_stepwise_board_iter_no_solution() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         __",
+      )?,
+      ["aa"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let mut stepwise_iter = xword.stepwise_board_iter();
+
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "__
+         __",
+      )?))
+    );
+
+    // The solver should only have to try one position before realizing no
+    // words in the bank will work.
+    assert_that!(
+      stepwise_iter.next(),
+      some(any![
+        eq(&XWord::build_grid(
+          "aa
+           __",
+        )?),
+        eq(&XWord::build_grid(
+          "__
+           aa",
+        )?),
+        eq(&XWord::build_grid(
+          "a_
+           a_",
+        )?),
+        eq(&XWord::build_grid(
+          "_a
+           _a",
+        )?),
+      ])
+    );
+
+    assert_that!(stepwise_iter.next(), none());
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_stepwise_required_only_board_iter() -> TermgameResult {
+    let grid = XWord::build_grid(
+      "_____
+       _____
+       _____",
+    )?;
+    let xword = XWordWithRequired::from_grid(
+      grid.clone(),
+      ["cde"].into_iter().map(|str| str.to_owned()),
+      ["cde"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let mut stepwise_iter = xword
+      .build_dlx_solver()
+      .into_solutions_stepwise()
+      .with_names()
+      .map(|partial_soln| match partial_soln {
+        StepwiseDlxIterResult::Solution(partial_soln) => StepwiseDlxIterResult::Solution(
+          xword.build_grid_from_assignments(grid.clone(), partial_soln),
+        ),
+        StepwiseDlxIterResult::Step(partial_soln) => {
+          StepwiseDlxIterResult::Step(xword.build_grid_from_assignments(grid.clone(), partial_soln))
+        }
+      });
+
+    assert_that!(
+      stepwise_iter.next(),
+      some(pat!(StepwiseDlxIterResult::Step(ok(eq(
+        &XWord::build_grid(
+          "_____
+           _____
+           _____",
+        )?
+      )))))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "c____
+           d____
+           e____",
+        )?
+      )))))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "_c___
+           _d___
+           _e___",
+        )?
+      )))))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "__c__
+           __d__
+           __e__",
+        )?
+      )))))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "___c_
+           ___d_
+           ___e_",
+        )?
+      )))))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
+        &XWord::build_grid(
+          "____c
+           ____d
+           ____e",
+        )?
+      )))))
+    );
+    assert_that!(stepwise_iter.next(), none());
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_stepwise_board_iter() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "_____
+         _____
+         _____",
+      )?,
+      ["cde"].into_iter().map(|str| str.to_owned()),
+      ["abc", "bcd", "cde", "dea", "eab", "abcde", "bcdea", "cdeab"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    let mut stepwise_iter = xword.stepwise_board_iter();
+
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "_____
+         _____
+         _____",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "__c__
+         __d__
+         __e__",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(any![
+        eq(&XWord::build_grid(
+          "a_c__
+           b_d__
+           c_e__",
+        )?),
+        eq(&XWord::build_grid(
+          "_bc__
+           _cd__
+           _de__",
+        )?),
+        eq(&XWord::build_grid(
+          "__cd_
+           __de_
+           __ea_",
+        )?),
+        eq(&XWord::build_grid(
+          "__c_e
+           __d_a
+           __e_b",
+        )?),
+        eq(&XWord::build_grid(
+          "abcde
+           __d__
+           __e__",
+        )?),
+        eq(&XWord::build_grid(
+          "__c__
+           bcdea
+           __e__",
+        )?),
+        eq(&XWord::build_grid(
+          "__c__
+           __d__
+           cdeab",
+        )?),
+      ])
+    );
+    // After taking at most 4 more clues, the grid should be full.
+    let mut stepwise_iter = stepwise_iter.skip(3);
+
+    // 6 more clues total had to be placed, so check that the next 3 iterations
+    // yield full boards. They keep yielding full boards because words are
+    // being placed on top of existing words in the other direction.
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "abcde
+         bcdea
+         cdeab",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "abcde
+         bcdea
+         cdeab",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "abcde
+         bcdea
+         cdeab",
+      )?))
+    );
+
+    // TODO solver should end iteration.
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "c____
+         d____
+         e____",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "_c___
+         _d___
+         _e___",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "___c_
+         ___d_
+         ___e_",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "____c
+         ____d
+         ____e",
+      )?))
+    );
+    assert_that!(stepwise_iter.next(), none());
 
     Ok(())
   }

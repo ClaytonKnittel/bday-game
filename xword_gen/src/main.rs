@@ -7,17 +7,24 @@ use std::{
 
 use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile, XWordTraits};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const DICT_PATH: &str = "./dict.bin";
 
 fn build_and_save_dict_from_xd(xd_path: &str) -> TermgameResult {
-  let dict = XWordDict::parse_xd_file(
+  const CUSTOM_CLUES: [(&str, &str); 0] = [];
+  // const CUSTOM_CLUES: [(&str, &str); 1] = [("clayton", "host of this event")];
+
+  let mut dict = XWordDict::parse_xd_file(
     BufReader::new(File::open(xd_path)?)
       .lines()
       .skip(1)
       .collect::<Result<Vec<_>, _>>()?,
   )?;
+
+  for &(word, clue_txt) in CUSTOM_CLUES.iter() {
+    dict.add_clue(word.to_owned(), clue_txt.to_owned());
+  }
 
   let result = bitcode::encode(&dict);
   let mut file = File::create(DICT_PATH)?;
@@ -100,50 +107,55 @@ const fn partial_sunday() -> &'static str {
    ______X_______X________"
 }
 
-fn mega() -> TermgameResult<Grid<bool>> {
+fn mega() -> TermgameResult<Grid<XWordTile>> {
   Ok(bitcode::decode(&fs::read("../grid.bin")?)?)
 }
 
 fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   let dict = read_dict()?;
-  let words: Vec<_> = dict.top_n_words(180_000);
+  let words: Vec<_> = dict.top_n_words(150_000);
 
-  #[rustfmt::skip]
-  const REQUIRED: [&str; 1] = [
-    "clayton",
-  ];
   // #[rustfmt::skip]
-  // const REQUIRED: [&str; 25] = [
-  //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
-  //   "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-  //   "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
+  // const REQUIRED: [&str; 1] = [
+  //   "clayton",
   // ];
+  #[rustfmt::skip]
+  const REQUIRED: [&str; 25] = [
+    "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
+    "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
+    "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
+  ];
 
-  let xword = XWord::from_grid(
+  let xword = XWordWithRequired::from_grid(
     grid,
-    // REQUIRED.into_iter().map(|str| str.to_owned()),
+    REQUIRED.into_iter().map(|str| str.to_owned()),
     words.into_iter().map(|str| str.to_owned()),
   )?;
 
-  // let guard = pprof::ProfilerGuardBuilder::default()
-  //   .frequency(1000)
-  //   .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-  //   .build()?;
+  // xword.list();
+  // return Ok(());
+
+  let guard = pprof::ProfilerGuardBuilder::default()
+    .frequency(1000)
+    .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+    .build()?;
 
   let (time, solution) = time_fn(|| xword.solve());
 
-  // if let Ok(report) = guard.report().build() {
-  //   let file = std::fs::File::create("xword_gen.svg")?;
-  //   report.flamegraph(file)?;
-  // };
+  if let Ok(report) = guard.report().build() {
+    let file = std::fs::File::create("xword_gen.svg")?;
+    report.flamegraph(file)?;
+  };
 
   let solution = solution?;
   println!("Took {}s", time.as_secs_f32());
 
-  {
+  if let Some(solution) = solution {
     let result = bitcode::encode(&solution);
     let mut file = File::create("./crossword.bin")?;
     file.write_all(&result)?;
+  } else {
+    println!("No solution!");
   }
 
   Ok(())
@@ -151,8 +163,8 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
 
 fn main() -> TermgameResult {
   if true {
-    // find_and_save_solution(mega()?)
-    find_and_save_solution(XWord::build_grid(partial_sunday())?)
+    find_and_save_solution(mega()?)
+    // find_and_save_solution(XWord::build_grid(partial_sunday())?)
   } else {
     build_and_save_dict_from_xd("./clues.txt")
   }

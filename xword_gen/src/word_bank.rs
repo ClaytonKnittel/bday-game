@@ -2,18 +2,23 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub struct WordBank {
+  word_set: HashSet<String>,
   bank: HashMap<u32, String>,
 }
 
 impl WordBank {
   pub fn from_words(words: impl IntoIterator<Item = String>) -> Self {
-    Self {
-      bank: words
-        .into_iter()
-        .enumerate()
-        .map(|(idx, word)| (idx as u32, word))
-        .collect(),
-    }
+    let word_set: HashSet<_> = words.into_iter().collect();
+    let bank = word_set
+      .iter()
+      .enumerate()
+      .map(|(idx, word)| (idx as u32, word.clone()))
+      .collect();
+    Self { word_set, bank }
+  }
+
+  pub fn has(&self, word: &str) -> bool {
+    self.word_set.contains(word)
   }
 
   pub fn get(&self, id: u32) -> Option<&str> {
