@@ -1072,7 +1072,7 @@ mod tests {
   use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType};
   use googletest::prelude::*;
   use util::{
-    error::TermgameResult,
+    error::{TermgameError, TermgameResult},
     grid::{Grid, Gridlike},
     pos::Pos,
   };
@@ -1996,6 +1996,84 @@ mod tests {
     expect_that!(
       solution.get(Pos { x: 1, y: 1 }).cloned(),
       some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_prefilled() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid("cat")?,
+      ["cat", "c", "a", "t"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+    let expected_solution =
+      Grid::from_vec(vec![Letter('c'), Letter('a'), Letter('t')], 3, 1).unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_prefilled_missing() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid("cat")?,
+      ["c", "a", "t"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_fills_whole_words() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "___
+         ___",
+      )?,
+      ["bob", "cat"].into_iter().map(|str| str.to_owned()),
+      ["cb", "ao", "tb"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        Letter('c'), Letter('a'), Letter('t'),
+        Letter('b'), Letter('o'), Letter('b'),
+      ], 3, 2,
+    )
+    .unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_cant_satisfy() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "___
+         ___",
+      )?,
+      ["bob", "cat"].into_iter().map(|str| str.to_owned()),
+      [],
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
     );
 
     Ok(())
