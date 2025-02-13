@@ -12,12 +12,28 @@ use xword_gen::xword::{XWord, XWordTile, XWordTraits};
 const DICT_PATH: &str = "./dict.bin";
 
 fn build_and_save_dict_from_xd(xd_path: &str) -> TermgameResult {
-  let dict = XWordDict::parse_xd_file(
+  const CUSTOM_CLUES: [(&str, &str); 9] = [
+    ("aaaaaa", "placeholder"),
+    ("aaaaaaa", "placeholder"),
+    ("aaaaaaaa", "placeholder"),
+    ("aaaaaaaaa", "placeholder"),
+    ("baaaaaaaa", "placeholder"),
+    ("caaaaaaaa", "placeholder"),
+    ("aaaaaaaaaaaa", "placeholder"),
+    ("aaaaaaaaaaaaaaa", "placeholder"),
+    ("clayton", "host of this event"),
+  ];
+
+  let mut dict = XWordDict::parse_xd_file(
     BufReader::new(File::open(xd_path)?)
       .lines()
       .skip(1)
       .collect::<Result<Vec<_>, _>>()?,
   )?;
+
+  for &(word, clue_txt) in CUSTOM_CLUES.iter() {
+    dict.add_clue(word.to_owned(), clue_txt.to_owned());
+  }
 
   let result = bitcode::encode(&dict);
   let mut file = File::create(DICT_PATH)?;
@@ -152,9 +168,9 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
 }
 
 fn main() -> TermgameResult {
-  if false {
-    // find_and_save_solution(mega()?)
-    find_and_save_solution(XWord::build_grid(partial_sunday())?)
+  if true {
+    find_and_save_solution(mega()?)
+    // find_and_save_solution(XWord::build_grid(partial_sunday())?)
   } else {
     build_and_save_dict_from_xd("./clues.txt")
   }

@@ -79,6 +79,20 @@ impl XWordDict {
     })
   }
 
+  pub fn add_clue(&mut self, word: String, clue_txt: String) {
+    *self
+      .dict
+      .entry(word)
+      .or_default()
+      .entry(DictEntry {
+        publisher: "n/a".to_owned(),
+        publish_year: 2025,
+        clue: clue_txt,
+      })
+      // Make the word occur many times so it will alaways be selected in top_n_words
+      .or_default() += 100_000;
+  }
+
   pub fn top_n_words(&self, n: usize) -> Vec<&str> {
     self
       .dict
