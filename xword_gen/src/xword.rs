@@ -945,9 +945,9 @@ where
       .try_fold(Some(self.board().clone()), |board, mut dlx| {
         if let Some(board) = board {
           if let Some(solution) = dlx.find_solutions().with_names().next() {
-            println!("Solution!");
+            // println!("Solution!");
             let grid = self.build_grid_from_assignments(board, solution)?;
-            println!("{}", grid);
+            // println!("{}", grid);
             return Ok(Some(grid));
           }
         }
