@@ -4,6 +4,7 @@ use std::{
   collections::{HashMap, HashSet},
   fmt::Display,
   iter::{self, once},
+  rc::Rc,
 };
 
 use itertools::Itertools;
@@ -604,18 +605,25 @@ pub trait XWordTraits {
 }
 
 #[derive(Clone, Debug)]
-pub struct XWord {
+pub struct XWordImpl<B> {
   board: Grid<XWordTile>,
-  // TODO hold ref to dict to prevent extra copies
-  bank: WordBank,
+  bank: B,
 }
 
-impl XWord {
+pub type XWord = XWordImpl<WordBank>;
+
+impl XWordImpl<WordBank> {
   pub fn from_grid(
     board: Grid<XWordTile>,
     bank: impl IntoIterator<Item = String>,
   ) -> TermgameResult<Self> {
     Ok(Self { board, bank: WordBank::from_words(bank) })
+  }
+}
+
+impl<B> XWordImpl<B> {
+  fn with_bank(board: Grid<XWordTile>, bank: B) -> Self {
+    Self { board, bank }
   }
 
   pub fn build_grid(board: &str) -> TermgameResult<Grid<XWordTile>> {
@@ -653,7 +661,12 @@ impl XWord {
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
     Grid::from_vec(board, width, height as u32)
   }
+}
 
+impl<B> XWordImpl<B>
+where
+  B: Borrow<WordBank>,
+{
   fn entries_for_partition<'a>(
     &'a self,
     partition_id: Pos,
@@ -831,17 +844,20 @@ impl XWord {
   }
 }
 
-impl XWordInternal for XWord {
+impl<B> XWordInternal for XWordImpl<B>
+where
+  B: Borrow<WordBank>,
+{
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)> {
-    self.bank.all_words_with_id()
+    self.bank.borrow().all_words_with_id()
   }
 
   fn find_word(&self, word_id: u32) -> Option<&'_ str> {
-    self.bank.get(word_id)
+    self.bank.borrow().get(word_id)
   }
 
   fn universal_words(&self) -> impl Iterator<Item = &'_ str> {
-    self.bank.all_words()
+    self.bank.borrow().all_words()
   }
 
   fn board(&self) -> &Grid<XWordTile> {
@@ -858,7 +874,10 @@ impl XWordInternal for XWord {
   }
 }
 
-impl XWordTraits for XWord {
+impl<B> XWordTraits for XWordImpl<B>
+where
+  B: Borrow<WordBank>,
+{
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
     self
       .build_dlx_solvers()
@@ -885,7 +904,7 @@ impl XWordTraits for XWord {
 #[derive(Clone, Debug)]
 pub struct XWordWithRequired {
   board: Grid<XWordTile>,
-  bank: WordBank,
+  bank: Rc<WordBank>,
   required_words: WordBank,
 }
 
@@ -901,11 +920,11 @@ impl XWordWithRequired {
       .all_words()
       .map(|word| word.to_owned())
       .collect();
-    let bank = WordBank::from_words(
+    let bank = Rc::new(WordBank::from_words(
       bank
         .into_iter()
         .filter(|word| !required_words_set.contains(word)),
-    );
+    ));
 
     Ok(Self { board, bank, required_words })
   }
@@ -962,14 +981,12 @@ impl XWordWithRequired {
         let solution = match iter.next()? {
           StepwiseDlxIterResult::Step(solution) => solution,
           StepwiseDlxIterResult::Solution(solution) => {
-            let xword = XWord::from_grid(
+            let xword = XWordImpl::<Rc<WordBank>>::with_bank(
               s.borrow()
                 .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
                 .ok()?,
-              // TODO avoid this copy
-              s.borrow().bank.all_words().map(|word| word.to_owned()),
-            )
-            .ok()?;
+              s.borrow().bank.clone(),
+            );
             *inner = Some(Box::new(xword.into_stepwise_iter()));
             solution
           }
@@ -1030,10 +1047,7 @@ impl XWordTraits for XWordWithRequired {
       .find_map(|required_words_solution| {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
-          .and_then(|board| {
-            // TODO avoid this copy
-            XWord::from_grid(board, self.bank.all_words().map(|word| word.to_owned()))
-          })
+          .map(|board| XWordImpl::<Rc<WordBank>>::with_bank(board, self.bank.clone()))
           .and_then(|xword| xword.solve())
           .transpose()
       })
