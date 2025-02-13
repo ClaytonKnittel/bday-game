@@ -113,7 +113,7 @@ fn mega() -> TermgameResult<Grid<XWordTile>> {
 
 fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   let dict = read_dict()?;
-  let mut words: Vec<_> = dict.top_n_words(200_000);
+  let mut words: Vec<_> = dict.top_n_words(160_000);
 
   // #[rustfmt::skip]
   // const REQUIRED: [&str; 1] = [
