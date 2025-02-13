@@ -1,7 +1,7 @@
 use std::{
   borrow::Borrow,
   cmp::Ordering,
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   fmt::Display,
   iter::{self, once},
   rc::Rc,
@@ -133,9 +133,24 @@ impl ProblemParameters {
 
 trait XWordInternal {
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)>;
+
+  fn words_excluding_existing(&self) -> impl Iterator<Item = (u32, &'_ str)> {
+    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    self
+      .words()
+      .filter(move |&(_, word)| !existing_words.contains(word))
+  }
+
   fn find_word(&self, word_id: u32) -> Option<&'_ str>;
 
   fn universal_words(&self) -> impl Iterator<Item = &'_ str>;
+
+  fn universal_words_excluding_existing(&self) -> impl Iterator<Item = &'_ str> {
+    let existing_words: HashSet<_> = self.all_prefilled_words().collect();
+    self
+      .universal_words()
+      .filter(move |&word| !existing_words.contains(word))
+  }
 
   fn board(&self) -> &Grid<XWordTile>;
 
@@ -290,7 +305,7 @@ trait XWordInternal {
 
   fn build_clue_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
     self
-      .words()
+      .words_excluding_existing()
       .map(|(id, _)| (XWordConstraint::Clue { id }, Self::word_constraint_type()))
   }
 
@@ -321,6 +336,22 @@ trait XWordInternal {
             )
           }),
       )
+  }
+
+  fn all_prefilled_words(&self) -> impl Iterator<Item = String> + '_ {
+    self.iter_board_entries().flat_map(|(clue_pos, length)| {
+      self
+        .clue_letter_positions(clue_pos, length)
+        .try_fold("".to_owned(), |mut word_accum, pos| {
+          match self.board().get(pos) {
+            Some(&XWordTile::Letter(letter)) => {
+              word_accum.push(letter);
+              Some(word_accum)
+            }
+            _ => None,
+          }
+        })
+    })
   }
 
   fn letter_likelihood_score(
@@ -390,7 +421,7 @@ trait XWordInternal {
   }
 
   fn build_frequency_map(&self) -> LetterFrequencyMap {
-    LetterFrequencyMap::from_words(self.universal_words())
+    LetterFrequencyMap::from_words(self.universal_words_excluding_existing())
   }
 
   fn build_word_assignments_from_entries(
@@ -680,23 +711,6 @@ where
       })
   }
 
-  fn do_prefilled_words_exist(&self) -> bool {
-    self.iter_board_entries().all(|(clue_pos, length)| {
-      self
-        .clue_letter_positions(clue_pos, length)
-        .try_fold("".to_owned(), |mut word_accum, pos| {
-          match self.board.get(pos) {
-            Some(&XWordTile::Letter(letter)) => {
-              word_accum.push(letter);
-              Some(word_accum)
-            }
-            _ => None,
-          }
-        })
-        .is_none_or(|word| self.bank.borrow().has(&word))
-    })
-  }
-
   fn build_partitioned_word_assignments<'a>(
     &'a self,
     uf: &'a UnionFind<Pos>,
@@ -896,7 +910,10 @@ where
   B: Borrow<WordBank>,
 {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
-    if !self.do_prefilled_words_exist() {
+    if !self
+      .all_prefilled_words()
+      .all(|word| self.bank.borrow().has(&word))
+    {
       return Ok(None);
     }
 
@@ -1058,6 +1075,10 @@ impl XWordInternal for XWordWithRequired {
 
 impl XWordTraits for XWordWithRequired {
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    if !self.all_prefilled_words().all(|word| self.bank.has(&word)) {
+      return Ok(None);
+    }
+
     self
       .build_dlx_solver()
       .into_solutions()
@@ -2276,6 +2297,28 @@ mod tests {
           })
         })
       ]
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_excludes_existing() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab"].into_iter().map(|str| str.to_owned()),
+      ["ab", "ac", "b", "c", "cb"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
     );
 
     Ok(())
