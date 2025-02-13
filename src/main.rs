@@ -165,8 +165,8 @@ fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
 
 fn show_dlx_iters() -> TermgameResult {
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  // let grid = XWord::build_grid(partial_sunday())?;
-  let grid = mega_grid()?;
+  let grid = XWord::build_grid(partial_sunday())?;
+  // let grid = mega_grid()?;
 
   // const REQUIRED: [&str; 0] = [];
   // #[rustfmt::skip]
