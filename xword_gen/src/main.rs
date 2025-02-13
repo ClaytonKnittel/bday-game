@@ -7,7 +7,7 @@ use std::{
 
 use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile, XWordTraits};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const DICT_PATH: &str = "./dict.bin";
 
@@ -115,20 +115,20 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   let dict = read_dict()?;
   let words: Vec<_> = dict.top_n_words(150_000);
 
-  #[rustfmt::skip]
-  const REQUIRED: [&str; 1] = [
-    "clayton",
-  ];
   // #[rustfmt::skip]
-  // const REQUIRED: [&str; 25] = [
-  //   "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
-  //   "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-  //   "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
+  // const REQUIRED: [&str; 1] = [
+  //   "clayton",
   // ];
+  #[rustfmt::skip]
+  const REQUIRED: [&str; 25] = [
+    "clayton", "eugenia", "andrew", "jackson", "matt", "bchan", "austen", "paul", "kevin",
+    "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
+    "cooper", "jessica", "kathy", "laney", "sruthi", "christina",
+  ];
 
-  let xword = XWord::from_grid(
+  let xword = XWordWithRequired::from_grid(
     grid,
-    // REQUIRED.into_iter().map(|str| str.to_owned()),
+    REQUIRED.into_iter().map(|str| str.to_owned()),
     words.into_iter().map(|str| str.to_owned()),
   )?;
 
