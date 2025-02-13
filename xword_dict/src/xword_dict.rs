@@ -2,13 +2,15 @@ use std::{borrow::Borrow, collections::HashMap};
 
 use bitcode::{Decode, Encode};
 use itertools::Itertools;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use util::error::{TermgameError, TermgameResult};
 
 #[derive(Encode, Decode, PartialEq, Eq, Hash)]
 struct DictEntry {
   publisher: String,
   publish_year: u16,
-  clues: String,
+  clue: String,
 }
 
 impl DictEntry {
@@ -32,12 +34,19 @@ impl DictEntry {
       return Ok(None);
     }
 
+    static SELF_REF_CLUE_RE: Lazy<Regex> =
+      Lazy::new(|| Regex::new(r"\d+[ -]?([aA]cross|[dD]own)").unwrap());
+    let clue = items[3..].join(" ").to_owned();
+    if SELF_REF_CLUE_RE.is_match(&clue) {
+      return Ok(None);
+    }
+
     Ok(Some((
       Self::canonicalize_word(word),
       Self {
         publisher: items[0].to_owned(),
         publish_year: items[1].parse()?,
-        clues: items[3..].join(" ").to_owned(),
+        clue,
       },
     )))
   }

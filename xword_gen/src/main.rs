@@ -100,7 +100,7 @@ const fn partial_sunday() -> &'static str {
    ______X_______X________"
 }
 
-fn mega() -> TermgameResult<Grid<bool>> {
+fn mega() -> TermgameResult<Grid<XWordTile>> {
   Ok(bitcode::decode(&fs::read("../grid.bin")?)?)
 }
 
@@ -125,32 +125,34 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
     words.into_iter().map(|str| str.to_owned()),
   )?;
 
-  // let guard = pprof::ProfilerGuardBuilder::default()
-  //   .frequency(1000)
-  //   .blocklist(&["libc", "libgcc", "pthread", "vdso"])
-  //   .build()?;
+  let guard = pprof::ProfilerGuardBuilder::default()
+    .frequency(1000)
+    .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+    .build()?;
 
   let (time, solution) = time_fn(|| xword.solve());
 
-  // if let Ok(report) = guard.report().build() {
-  //   let file = std::fs::File::create("xword_gen.svg")?;
-  //   report.flamegraph(file)?;
-  // };
+  if let Ok(report) = guard.report().build() {
+    let file = std::fs::File::create("xword_gen.svg")?;
+    report.flamegraph(file)?;
+  };
 
   let solution = solution?;
   println!("Took {}s", time.as_secs_f32());
 
-  {
+  if let Some(solution) = solution {
     let result = bitcode::encode(&solution);
     let mut file = File::create("./crossword.bin")?;
     file.write_all(&result)?;
+  } else {
+    println!("No solution!");
   }
 
   Ok(())
 }
 
 fn main() -> TermgameResult {
-  if true {
+  if false {
     // find_and_save_solution(mega()?)
     find_and_save_solution(XWord::build_grid(partial_sunday())?)
   } else {
