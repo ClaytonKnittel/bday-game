@@ -833,9 +833,11 @@ where
         return None;
       }
 
+      let mut any_step = false;
       let selected_items = dlx_iters.iter_mut().flat_map(|iter| match iter {
         IterOrSolution::Iter(dlx_iter) => {
           if let Some(result) = dlx_iter.next() {
+            any_step = true;
             match result {
               StepwiseDlxIterResult::Step(solution) => solution,
               StepwiseDlxIterResult::Solution(solution) => {
@@ -850,12 +852,11 @@ where
         }
         IterOrSolution::Solution(solution) => solution.clone(),
       });
-      Some(
-        s.borrow()
-          .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
-          .ok(),
-      )
-      .flatten()
+      let grid = s
+        .borrow()
+        .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
+        .ok();
+      any_step.then_some(grid).flatten()
     })
   }
 }
@@ -1000,7 +1001,11 @@ impl XWordWithRequired {
                 .ok()?,
               s.borrow().bank.clone(),
             );
-            *inner = Some(Box::new(xword.into_stepwise_iter()));
+            let mut inner_iter = Box::new(xword.into_stepwise_iter());
+            // Consume the first iteration, which always yields an empty
+            // partial solution.
+            inner_iter.next();
+            *inner = Some(inner_iter);
             solution
           }
         };
@@ -2277,6 +2282,55 @@ mod tests {
   }
 
   #[gtest]
+  fn test_stepwise_board_iter_no_solution() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         __",
+      )?,
+      ["aa"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let mut stepwise_iter = xword.stepwise_board_iter();
+
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "__
+         __",
+      )?))
+    );
+
+    // The solver should only have to try one position before realizing no
+    // words in the bank will work.
+    assert_that!(
+      stepwise_iter.next(),
+      some(any![
+        eq(&XWord::build_grid(
+          "aa
+           __",
+        )?),
+        eq(&XWord::build_grid(
+          "__
+           aa",
+        )?),
+        eq(&XWord::build_grid(
+          "a_
+           a_",
+        )?),
+        eq(&XWord::build_grid(
+          "_a
+           _a",
+        )?),
+      ])
+    );
+
+    assert_that!(stepwise_iter.next(), none());
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_stepwise_required_only_board_iter() -> TermgameResult {
     let grid = XWord::build_grid(
       "_____
@@ -2307,8 +2361,8 @@ mod tests {
       some(pat!(StepwiseDlxIterResult::Step(ok(eq(
         &XWord::build_grid(
           "_____
-         _____
-         _____",
+           _____
+           _____",
         )?
       )))))
     );
@@ -2317,8 +2371,8 @@ mod tests {
       some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
         &XWord::build_grid(
           "c____
-         d____
-         e____",
+           d____
+           e____",
         )?
       )))))
     );
@@ -2327,8 +2381,8 @@ mod tests {
       some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
         &XWord::build_grid(
           "_c___
-         _d___
-         _e___",
+           _d___
+           _e___",
         )?
       )))))
     );
@@ -2337,8 +2391,8 @@ mod tests {
       some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
         &XWord::build_grid(
           "__c__
-         __d__
-         __e__",
+           __d__
+           __e__",
         )?
       )))))
     );
@@ -2347,8 +2401,8 @@ mod tests {
       some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
         &XWord::build_grid(
           "___c_
-         ___d_
-         ___e_",
+           ___d_
+           ___e_",
         )?
       )))))
     );
@@ -2357,8 +2411,8 @@ mod tests {
       some(pat!(StepwiseDlxIterResult::Solution(ok(eq(
         &XWord::build_grid(
           "____c
-         ____d
-         ____e",
+           ____d
+           ____e",
         )?
       )))))
     );
@@ -2422,67 +2476,36 @@ mod tests {
            __d_a
            __e_b",
         )?),
-      ])
-    );
-    assert_that!(
-      stepwise_iter.next(),
-      some(any![
         eq(&XWord::build_grid(
-          "abc__
-           bcd__
-           cde__",
+          "abcde
+           __d__
+           __e__",
         )?),
         eq(&XWord::build_grid(
-          "a_cd_
-           b_de_
-           c_ea_",
+          "__c__
+           bcdea
+           __e__",
         )?),
         eq(&XWord::build_grid(
-          "a_c_e
-           b_d_a
-           c_e_b",
-        )?),
-        eq(&XWord::build_grid(
-          "_bcd_
-           _cde_
-           _dea_",
-        )?),
-        eq(&XWord::build_grid(
-          "_bc_e
-           _cd_a
-           _de_b",
-        )?),
-        eq(&XWord::build_grid(
-          "__cde
-           __dea
-           __eab",
+          "__c__
+           __d__
+           cdeab",
         )?),
       ])
     );
+    // After taking at most 4 more clues, the grid should be full.
+    let mut stepwise_iter = stepwise_iter.skip(3);
+
+    // 6 more clues total had to be placed, so check that the next 3 iterations
+    // yield full boards. They keep yielding full boards because words are
+    // being placed on top of existing words in the other direction.
     assert_that!(
       stepwise_iter.next(),
-      some(any![
-        eq(&XWord::build_grid(
-          "abcd_
-           bcde_
-           cdea_",
-        )?),
-        eq(&XWord::build_grid(
-          "abc_e
-           bcd_a
-           cde_b",
-        )?),
-        eq(&XWord::build_grid(
-          "a_cde
-           b_dea
-           c_eab",
-        )?),
-        eq(&XWord::build_grid(
-          "_bcde
-           _cdea
-           _deab",
-        )?),
-      ])
+      some(eq(&XWord::build_grid(
+        "abcde
+         bcdea
+         cdeab",
+      )?))
     );
     assert_that!(
       stepwise_iter.next(),
@@ -2490,6 +2513,48 @@ mod tests {
         "abcde
          bcdea
          cdeab",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "abcde
+         bcdea
+         cdeab",
+      )?))
+    );
+
+    // TODO solver should end iteration.
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "c____
+         d____
+         e____",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "_c___
+         _d___
+         _e___",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "___c_
+         ___d_
+         ___e_",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "____c
+         ____d
+         ____e",
       )?))
     );
     assert_that!(stepwise_iter.next(), none());
