@@ -4,6 +4,7 @@ use std::{
   collections::{HashMap, HashSet},
   fmt::Display,
   iter::{self, once},
+  rc::Rc,
 };
 
 use itertools::Itertools;
@@ -17,6 +18,8 @@ use util::{
 };
 
 use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
+
+use crate::word_bank::{LetterFrequencyMap, WordBank};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueNumber {
@@ -113,54 +116,6 @@ impl Display for XWordTile {
         XWordTile::Wall => '*',
       }
     )
-  }
-}
-
-type LetterFrequencyMapEntry<'a> = (HashMap<(char, u32), u32>, HashSet<&'a str>);
-struct LetterFrequencyMap<'a> {
-  /// Map from word_length -> ((letter, index) -> count, (set of words))
-  frequencies: HashMap<u32, LetterFrequencyMapEntry<'a>>,
-}
-
-impl<'a> LetterFrequencyMap<'a> {
-  fn new() -> Self {
-    Self { frequencies: HashMap::new() }
-  }
-
-  fn from_words(words: impl IntoIterator<Item = &'a str>) -> Self {
-    let mut map = Self::new();
-    for word in words.into_iter() {
-      map.insert(word);
-    }
-    map
-  }
-
-  fn insert(&mut self, word: &'a str) {
-    let len = word.chars().count() as u32;
-    let (char_map, words) = self.frequencies.entry(len).or_default();
-    for (idx, letter) in word.chars().enumerate() {
-      *char_map.entry((letter, idx as u32)).or_default() += 1;
-    }
-    words.insert(word);
-  }
-
-  fn words_with_length(&self, word_length: u32) -> impl Iterator<Item = &'a str> + '_ {
-    self
-      .frequencies
-      .get(&word_length)
-      .map(|(_, words)| words.iter().cloned())
-      .into_iter()
-      .flatten()
-  }
-
-  fn likelihood(&self, word_length: u32, char_pos: (char, u32)) -> f32 {
-    self
-      .frequencies
-      .get(&word_length)
-      .map(|(char_map, words)| {
-        char_map.get(&char_pos).cloned().unwrap_or(0) as f32 / words.len() as f32
-      })
-      .unwrap_or(0f32)
   }
 }
 
@@ -650,24 +605,25 @@ pub trait XWordTraits {
 }
 
 #[derive(Clone, Debug)]
-pub struct XWord {
+pub struct XWordImpl<B> {
   board: Grid<XWordTile>,
-  // TODO hold ref to dict to prevent extra copies
-  bank: HashMap<u32, String>,
+  bank: B,
 }
 
-impl XWord {
+pub type XWord = XWordImpl<WordBank>;
+
+impl XWordImpl<WordBank> {
   pub fn from_grid(
     board: Grid<XWordTile>,
     bank: impl IntoIterator<Item = String>,
   ) -> TermgameResult<Self> {
-    let bank = bank
-      .into_iter()
-      .enumerate()
-      .map(|(id, word)| (id as u32, word))
-      .collect();
+    Ok(Self { board, bank: WordBank::from_words(bank) })
+  }
+}
 
-    Ok(Self { board, bank })
+impl<B> XWordImpl<B> {
+  fn with_bank(board: Grid<XWordTile>, bank: B) -> Self {
+    Self { board, bank }
   }
 
   pub fn build_grid(board: &str) -> TermgameResult<Grid<XWordTile>> {
@@ -705,7 +661,12 @@ impl XWord {
     let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
     Grid::from_vec(board, width, height as u32)
   }
+}
 
+impl<B> XWordImpl<B>
+where
+  B: Borrow<WordBank>,
+{
   fn entries_for_partition<'a>(
     &'a self,
     partition_id: Pos,
@@ -883,17 +844,20 @@ impl XWord {
   }
 }
 
-impl XWordInternal for XWord {
+impl<B> XWordInternal for XWordImpl<B>
+where
+  B: Borrow<WordBank>,
+{
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)> {
-    self.bank.iter().map(|(&id, word)| (id, word.as_str()))
+    self.bank.borrow().all_words_with_id()
   }
 
   fn find_word(&self, word_id: u32) -> Option<&'_ str> {
-    self.bank.get(&word_id).map(|str| str.as_str())
+    self.bank.borrow().get(word_id)
   }
 
   fn universal_words(&self) -> impl Iterator<Item = &'_ str> {
-    self.words().map(|(_, word)| word)
+    self.bank.borrow().all_words()
   }
 
   fn board(&self) -> &Grid<XWordTile> {
@@ -910,7 +874,10 @@ impl XWordInternal for XWord {
   }
 }
 
-impl XWordTraits for XWord {
+impl<B> XWordTraits for XWordImpl<B>
+where
+  B: Borrow<WordBank>,
+{
   fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
     self
       .build_dlx_solvers()
@@ -937,8 +904,8 @@ impl XWordTraits for XWord {
 #[derive(Clone, Debug)]
 pub struct XWordWithRequired {
   board: Grid<XWordTile>,
-  bank: HashMap<u32, String>,
-  required_words: HashMap<u32, String>,
+  bank: Rc<WordBank>,
+  required_words: WordBank,
 }
 
 impl XWordWithRequired {
@@ -947,22 +914,17 @@ impl XWordWithRequired {
     required_words: impl IntoIterator<Item = String>,
     bank: impl IntoIterator<Item = String>,
   ) -> TermgameResult<Self> {
-    let required_words: HashMap<_, _> = required_words
-      .into_iter()
-      .enumerate()
-      .map(|(id, word)| (id as u32, word))
-      .collect();
+    let required_words = WordBank::from_words(required_words);
 
     let required_words_set: HashSet<_> = required_words
-      .values()
+      .all_words()
       .map(|word| word.to_owned())
       .collect();
-    let bank = bank
-      .into_iter()
-      .filter(|word| !required_words_set.contains(word))
-      .enumerate()
-      .map(|(id, word)| ((id + required_words.len()) as u32, word))
-      .collect();
+    let bank = Rc::new(WordBank::from_words(
+      bank
+        .into_iter()
+        .filter(|word| !required_words_set.contains(word)),
+    ));
 
     Ok(Self { board, bank, required_words })
   }
@@ -1019,13 +981,12 @@ impl XWordWithRequired {
         let solution = match iter.next()? {
           StepwiseDlxIterResult::Step(solution) => solution,
           StepwiseDlxIterResult::Solution(solution) => {
-            let xword = XWord::from_grid(
+            let xword = XWordImpl::<Rc<WordBank>>::with_bank(
               s.borrow()
                 .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
                 .ok()?,
-              s.borrow().bank.values().cloned(),
-            )
-            .ok()?;
+              s.borrow().bank.clone(),
+            );
             *inner = Some(Box::new(xword.into_stepwise_iter()));
             solution
           }
@@ -1052,22 +1013,15 @@ impl XWordWithRequired {
 
 impl XWordInternal for XWordWithRequired {
   fn words(&self) -> impl Iterator<Item = (u32, &'_ str)> {
-    self
-      .required_words
-      .iter()
-      .map(|(&id, word)| (id, word.as_str()))
+    self.required_words.all_words_with_id()
   }
 
   fn find_word(&self, word_id: u32) -> Option<&'_ str> {
-    self.required_words.get(&word_id).map(|str| str.as_str())
+    self.required_words.get(word_id)
   }
 
   fn universal_words(&self) -> impl Iterator<Item = &'_ str> {
-    self
-      .required_words
-      .values()
-      .chain(self.bank.values())
-      .map(|str| str.as_str())
+    self.required_words.all_words().chain(self.bank.all_words())
   }
 
   fn board(&self) -> &Grid<XWordTile> {
@@ -1093,7 +1047,7 @@ impl XWordTraits for XWordWithRequired {
       .find_map(|required_words_solution| {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
-          .and_then(|board| XWord::from_grid(board, self.bank.values().cloned()))
+          .map(|board| XWordImpl::<Rc<WordBank>>::with_bank(board, self.bank.clone()))
           .and_then(|xword| xword.solve())
           .transpose()
       })
@@ -1351,7 +1305,7 @@ mod tests {
       .map(|str| str.to_owned()),
     )?;
 
-    let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
+    let frequency_map = LetterFrequencyMap::from_words(xword.bank.all_words());
 
     // First-position letters in columns across the top row:
     expect_float_eq!(
@@ -1478,7 +1432,7 @@ mod tests {
       .map(|str| str.to_owned()),
     )?;
 
-    let frequency_map = LetterFrequencyMap::from_words(xword.bank.values().map(|str| str.as_str()));
+    let frequency_map = LetterFrequencyMap::from_words(xword.bank.all_words());
 
     expect_float_eq!(
       xword.word_likelihood_score(
