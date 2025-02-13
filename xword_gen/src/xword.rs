@@ -1,8 +1,9 @@
 use std::{
+  borrow::Borrow,
   cmp::Ordering,
   collections::{HashMap, HashSet},
   fmt::Display,
-  iter,
+  iter::{self, once},
 };
 
 use itertools::Itertools;
@@ -11,23 +12,36 @@ use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
+  union_find::UnionFind,
+  variant::Variant2,
 };
 
-use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType};
+use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordClueNumber {
   number: u32,
   is_row: bool,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct XWordCluePosition {
   pos: Pos,
   clue_number: XWordClueNumber,
 }
 
-const NUM_TILE_BITS: u32 = 10;
+/// Tiles indicate letters filled in on the board by a clue. Each letter
+/// placement by a horizontal/vertical clue selects 5 of the 10 constraints
+/// for that letter at that position, with the opposing horizontal/vertical
+/// clue choosing the same letter taking the complement 5 constraints.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct XWordTileConstraint {
+  pos: Pos,
+  bit: u32,
+}
+
+const NUM_TILE_SELECTIONS: u32 = 5;
+const NUM_TILE_BITS: u32 = 2 * NUM_TILE_SELECTIONS;
 
 /// Each clue has one CluePos constraint, one Clue constraint, and one Tile
 /// constraint per letter in the answer.
@@ -35,14 +49,12 @@ const NUM_TILE_BITS: u32 = 10;
 pub enum XWordConstraint {
   /// ClueNumber is the clue position identifier this clue would get.
   ClueNumber(XWordClueNumber),
-  /// Tiles indicate letters filled in on the board by a clue. Each letter
-  /// placement by a horizontal/vertical clue selects 5 of the 10 constraints
-  /// for that letter at that position, with the opposing horizontal/vertical
-  /// clue choosing the same letter taking the complement 5 constraints.
-  Tile { pos: Pos, bit: u32 },
+  Tile(XWordTileConstraint),
   /// Clue id: each clue has a unique id. This prevents the same clue from
   /// being used twice.
-  Clue { id: u32 },
+  Clue {
+    id: u32,
+  },
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -65,17 +77,11 @@ pub struct XWordWord {
 
 impl XWordWord {
   pub fn new(word: String) -> Self {
-    XWordWord {
-      word,
-      required: false,
-    }
+    XWordWord { word, required: false }
   }
 
   pub fn new_required(word: String) -> Self {
-    XWordWord {
-      word,
-      required: true,
-    }
+    XWordWord { word, required: true }
   }
 }
 
@@ -84,6 +90,16 @@ pub enum XWordTile {
   Letter(char),
   Empty,
   Wall,
+}
+
+impl XWordTile {
+  pub fn empty(&self) -> bool {
+    matches!(self, XWordTile::Empty)
+  }
+
+  pub fn available(&self) -> bool {
+    matches!(self, XWordTile::Empty | XWordTile::Letter(_))
+  }
 }
 
 impl Display for XWordTile {
@@ -108,9 +124,7 @@ struct LetterFrequencyMap<'a> {
 
 impl<'a> LetterFrequencyMap<'a> {
   fn new() -> Self {
-    Self {
-      frequencies: HashMap::new(),
-    }
+    Self { frequencies: HashMap::new() }
   }
 
   fn from_words(words: impl IntoIterator<Item = &'a str>) -> Self {
@@ -150,99 +164,48 @@ impl<'a> LetterFrequencyMap<'a> {
   }
 }
 
-#[derive(Clone, Debug)]
-pub struct XWord {
-  board: Grid<bool>,
-  required_words: HashMap<u32, String>,
-  bank: HashMap<u32, String>,
+#[derive(Default, Debug)]
+struct ProblemParameters {
+  constraints: Vec<(XWordConstraint, HeaderType)>,
+  word_assignments: Vec<(XWordClueAssignment, Vec<Constraint<XWordConstraint>>)>,
 }
 
-impl XWord {
-  pub fn from_grid_with_required(
-    board: Grid<bool>,
-    required_words: impl IntoIterator<Item = String>,
-    bank: impl IntoIterator<Item = String>,
-  ) -> TermgameResult<Self> {
-    let required_words: HashMap<_, _> = required_words
-      .into_iter()
-      .enumerate()
-      .map(|(id, word)| (id as u32, word))
-      .collect();
-
-    let required_words_set: HashSet<_> = required_words
-      .values()
-      .map(|word| word.to_owned())
-      .collect();
-    let bank = bank
-      .into_iter()
-      .filter(|word| !required_words_set.contains(word))
-      .enumerate()
-      .map(|(id, word)| ((id + required_words.len()) as u32, word))
-      .collect();
-
-    Ok(Self {
-      board,
-      required_words,
-      bank,
-    })
+impl ProblemParameters {
+  fn build_dlx(self) -> Dlx<XWordConstraint, XWordClueAssignment> {
+    Dlx::new(self.constraints, self.word_assignments)
   }
+}
 
-  pub fn from_grid(
-    board: Grid<bool>,
-    bank: impl IntoIterator<Item = String>,
-  ) -> TermgameResult<Self> {
-    Self::from_grid_with_required(board, iter::empty(), bank)
-  }
+trait XWordInternal {
+  fn words(&self) -> impl Iterator<Item = (u32, &'_ str)>;
+  fn find_word(&self, word_id: u32) -> Option<&'_ str>;
 
-  pub fn build_grid(board: &str) -> TermgameResult<Grid<bool>> {
-    let (width, height, board) = board.lines().try_fold(
-      (None, 0, vec![]),
-      |(width, height, mut board), line| -> TermgameResult<_> {
-        let line = line.trim();
-        board.extend(
-          line
-            .chars()
-            .map(|c| match c {
-              '_' => Ok(true),
-              'X' => Ok(false),
-              _ => Err(TermgameError::Parse(format!("Unrecognized board character '{c}'")).into()),
-            })
-            .collect::<TermgameResult<Vec<_>>>()?,
-        );
-        if let Some(width) = width {
-          if line.len() != width {
-            return Err(
-              TermgameError::Parse(format!(
-                "Board line lengths differ: {} vs {width}",
-                line.len()
-              ))
-              .into(),
-            );
-          }
-        }
+  fn universal_words(&self) -> impl Iterator<Item = &'_ str>;
 
-        Ok((Some(line.len()), height + 1, board))
-      },
-    )?;
+  fn board(&self) -> &Grid<XWordTile>;
 
-    let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
-    Grid::from_vec(board, width, height as u32)
-  }
+  fn should_fill_board() -> bool;
+  fn word_constraint_type() -> HeaderType;
 
   #[cfg(test)]
   fn testonly_word_id(&self, word: &str) -> Option<u32> {
     self
-      .required_words
-      .iter()
-      .chain(self.bank.iter())
-      .find_map(|(&idx, bank_word)| (word == bank_word).then_some(idx))
+      .words()
+      .find_map(|(idx, bank_word)| (word == bank_word).then_some(idx))
   }
 
-  pub fn available(&self, pos: Pos) -> bool {
-    self.board.get(pos).is_some_and(|&available| available)
+  fn empty(&self, pos: Pos) -> bool {
+    self
+      .board()
+      .get(pos)
+      .is_some_and(|tile| matches!(tile, XWordTile::Empty))
   }
 
-  fn iterate_board_row_clues<'a, G: Gridlike<bool> + 'a>(
+  fn available(&self, pos: Pos) -> bool {
+    self.board().get(pos).is_some_and(|tile| tile.available())
+  }
+
+  fn iterate_board_row_clues<'a, G: Gridlike<XWordTile> + 'a>(
     board: G,
   ) -> impl Iterator<Item = XWordEntry> + 'a {
     struct EmptySequences<'a, I> {
@@ -254,7 +217,7 @@ impl XWord {
 
     impl<I> Iterator for EmptySequences<'_, I>
     where
-      I: Iterator<Item = bool>,
+      I: Iterator<Item = XWordTile>,
     {
       type Item = XWordEntry;
 
@@ -265,23 +228,20 @@ impl XWord {
         loop {
           self.x += 1;
           match iter.next() {
-            Some(true) => break,
-            Some(false) => {}
+            Some(XWordTile::Empty | XWordTile::Letter(_)) => break,
+            Some(XWordTile::Wall) => {}
             None => return None,
           }
         }
         *self.clue_number += 1;
         let mut length = 1;
-        let pos = Pos {
-          x: (self.x - 1) as i32,
-          y: self.y as i32,
-        };
+        let pos = Pos { x: (self.x - 1) as i32, y: self.y as i32 };
 
         loop {
           self.x += 1;
           match iter.next() {
-            Some(true) => length += 1,
-            Some(false) => break,
+            Some(XWordTile::Empty | XWordTile::Letter(_)) => length += 1,
+            Some(XWordTile::Wall) => break,
             None => {
               self.iter = None;
               break;
@@ -289,11 +249,7 @@ impl XWord {
           }
         }
 
-        Some(XWordEntry {
-          number,
-          pos,
-          length,
-        })
+        Some(XWordEntry { number, pos, length })
       }
     }
 
@@ -311,20 +267,32 @@ impl XWord {
       .flatten()
   }
 
-  fn iterate_row_clues(&self) -> impl Iterator<Item = XWordEntry> + use<'_> {
-    Self::iterate_board_row_clues(&self.board)
+  fn iterate_row_clues(&self) -> impl Iterator<Item = XWordEntry> + '_ {
+    Self::iterate_board_row_clues(self.board())
   }
 
-  fn iterate_col_clues(&self) -> impl Iterator<Item = XWordEntry> + use<'_> {
-    Self::iterate_board_row_clues(self.board.transpose()).map(|entry| XWordEntry {
-      pos: entry.pos.transpose(),
-      ..entry
+  fn iterate_col_clues(&self) -> impl Iterator<Item = XWordEntry> + '_ {
+    Self::iterate_board_row_clues(self.board().transpose())
+      .map(|entry| XWordEntry { pos: entry.pos.transpose(), ..entry })
+  }
+
+  fn clue_letter_positions_unbounded<'a>(
+    &self,
+    clue_pos: XWordCluePosition,
+  ) -> impl Iterator<Item = Pos> + 'a {
+    (0..).map(move |idx| {
+      clue_pos.pos
+        + if clue_pos.clue_number.is_row {
+          Diff { x: idx, y: 0 }
+        } else {
+          Diff { x: 0, y: idx }
+        }
     })
   }
 
   fn clue_letter_positions<'a>(
     &self,
-    clue_pos: &'a XWordCluePosition,
+    clue_pos: XWordCluePosition,
     length: u32,
   ) -> impl Iterator<Item = Pos> + 'a {
     debug_assert!((0..length as i32).all(|idx| {
@@ -338,19 +306,20 @@ impl XWord {
       )
     }));
 
-    (0..length as i32).map(move |idx| {
-      clue_pos.pos
-        + if clue_pos.clue_number.is_row {
-          Diff { x: idx, y: 0 }
-        } else {
-          Diff { x: 0, y: idx }
-        }
-    })
+    self
+      .clue_letter_positions_unbounded(clue_pos)
+      .take(length as usize)
+  }
+
+  fn find_empty_word_tile(&self, clue_position: XWordCluePosition, length: u32) -> Option<Pos> {
+    self
+      .clue_letter_positions(clue_position, length)
+      .find(|&pos| self.empty(pos))
   }
 
   fn word_letter_positions<'a>(
     &self,
-    clue_pos: &'a XWordCluePosition,
+    clue_pos: XWordCluePosition,
     word: &'a str,
   ) -> impl Iterator<Item = (char, Pos)> + 'a {
     let word_len = word.chars().count() as u32;
@@ -359,52 +328,15 @@ impl XWord {
       .zip(self.clue_letter_positions(clue_pos, word_len))
   }
 
-  fn build_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
+  fn tile_constraints_for_pos(&self, pos: Pos) -> impl Iterator<Item = XWordTileConstraint> + '_ {
+    debug_assert!(self.board().get(pos).is_some_and(|tile| tile.empty()));
+    (0..NUM_TILE_BITS).map(move |bit| XWordTileConstraint { pos, bit })
+  }
+
+  fn build_clue_constraints(&self) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
     self
-      .iterate_col_clues()
-      .map(|XWordEntry { number, .. }| {
-        (
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number,
-            is_row: false,
-          }),
-          HeaderType::Primary,
-        )
-      })
-      .chain(self.iterate_row_clues().map(|XWordEntry { number, .. }| {
-        (
-          XWordConstraint::ClueNumber(XWordClueNumber {
-            number,
-            is_row: true,
-          }),
-          HeaderType::Primary,
-        )
-      }))
-      .chain((0..self.board.height() as i32).flat_map(move |y| {
-        (0..self.board.width() as i32)
-          .flat_map(move |x| {
-            let pos = Pos { x, y };
-            self.board.get(pos).and_then(move |available| {
-              available.then(move || {
-                (0..NUM_TILE_BITS)
-                  .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
-              })
-            })
-          })
-          .flatten()
-      }))
-      .chain(
-        self
-          .required_words
-          .iter()
-          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Primary)),
-      )
-      .chain(
-        self
-          .bank
-          .iter()
-          .map(|(&id, _)| (XWordConstraint::Clue { id }, HeaderType::Secondary)),
-      )
+      .words()
+      .map(|(id, _)| (XWordConstraint::Clue { id }, Self::word_constraint_type()))
   }
 
   /// Returns an iterator over all locations for clues in the board, and the
@@ -412,42 +344,28 @@ impl XWord {
   fn iter_board_entries(&self) -> impl Iterator<Item = (XWordCluePosition, u32)> + '_ {
     self
       .iterate_row_clues()
-      .map(
-        |XWordEntry {
-           number,
-           pos,
-           length,
-         }| {
-          (
-            XWordCluePosition {
-              pos,
-              clue_number: XWordClueNumber {
-                number,
-                is_row: true,
+      .map(|XWordEntry { number, pos, length }| {
+        (
+          XWordCluePosition {
+            pos,
+            clue_number: XWordClueNumber { number, is_row: true },
+          },
+          length,
+        )
+      })
+      .chain(
+        self
+          .iterate_col_clues()
+          .map(|XWordEntry { number, pos, length }| {
+            (
+              XWordCluePosition {
+                pos,
+                clue_number: XWordClueNumber { number, is_row: false },
               },
-            },
-            length,
-          )
-        },
+              length,
+            )
+          }),
       )
-      .chain(self.iterate_col_clues().map(
-        |XWordEntry {
-           number,
-           pos,
-           length,
-         }| {
-          (
-            XWordCluePosition {
-              pos,
-              clue_number: XWordClueNumber {
-                number,
-                is_row: false,
-              },
-            },
-            length,
-          )
-        },
-      ))
   }
 
   fn letter_likelihood_score(
@@ -465,9 +383,9 @@ impl XWord {
     let letter_idx = (1..)
       .take_while(|&delta| {
         self
-          .board
+          .board()
           .get(pos - delta * diff)
-          .is_some_and(|&empty| empty)
+          .is_some_and(|tile| tile.available())
       })
       .count() as u32;
     let word_length = letter_idx
@@ -475,9 +393,9 @@ impl XWord {
       + (1..)
         .take_while(|&delta| {
           self
-            .board
+            .board()
             .get(pos + delta * diff)
-            .is_some_and(|&empty| empty)
+            .is_some_and(|tile| tile.available())
         })
         .count() as u32;
 
@@ -487,7 +405,7 @@ impl XWord {
   fn word_likelihood_score(
     &self,
     word: &str,
-    clue_pos: &XWordCluePosition,
+    clue_pos: XWordCluePosition,
     frequency_map: &LetterFrequencyMap,
   ) -> f32 {
     self
@@ -502,84 +420,96 @@ impl XWord {
     pos: Pos,
     letter: char,
     is_row: bool,
-  ) -> impl Iterator<Item = Constraint<XWordConstraint>> {
+  ) -> impl Iterator<Item = XWordTileConstraint> {
     debug_assert!(letter.is_ascii_lowercase());
     let bits = (letter as u32) - b'a' as u32;
-    (0..5).map(move |bit_idx| {
-      Constraint::Primary(XWordConstraint::Tile {
-        pos,
-        bit: 2 * bit_idx
-          + if is_row {
-            (bits >> bit_idx) & 0x1
-          } else {
-            1 - ((bits >> bit_idx) & 0x1)
-          },
-      })
+    (0..NUM_TILE_SELECTIONS).map(move |bit_idx| XWordTileConstraint {
+      pos,
+      bit: 2 * bit_idx
+        + if is_row {
+          (bits >> bit_idx) & 0x1
+        } else {
+          1 - ((bits >> bit_idx) & 0x1)
+        },
     })
   }
 
-  fn build_word_assignments(
+  fn build_frequency_map(&self) -> LetterFrequencyMap {
+    LetterFrequencyMap::from_words(self.universal_words())
+  }
+
+  fn build_word_assignments_from_entries(
     &self,
+    board_entries: impl Iterator<Item = (XWordCluePosition, u32)>,
   ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
-    let frequency_map = LetterFrequencyMap::from_words(
-      self
-        .required_words
-        .values()
-        .chain(self.bank.values())
-        .map(|str| str.as_str()),
-    );
-    let mut word_map: HashMap<_, _> = self
-      .required_words
-      .iter()
-      .map(|(id, word)| (id, word, true))
-      .chain(self.bank.iter().map(|(id, word)| (id, word, false)))
-      .map(|(&id, word, is_required)| (word.as_str(), (id, is_required, 0)))
-      .collect();
+    let frequency_map = self.build_frequency_map();
+    let mut word_map: HashMap<_, _> = self.words().map(|(id, word)| (word, (id, 0))).collect();
+
+    let mut clue_pos_id = 0;
 
     // All constraints are grouped by board entry, and within each category
     // sorted by a "fitness" score of the clue in that position.
-    self
-      .iter_board_entries()
+    board_entries
       .flat_map(move |(clue_pos, length)| -> Vec<_> {
-        let clue_pos_constraint =
-          Constraint::Primary(XWordConstraint::ClueNumber(clue_pos.clue_number.clone()));
+        let constraint_label = XWordConstraint::ClueNumber(clue_pos.clue_number);
+        let clue_pos_constraint = if Self::should_fill_board() {
+          Constraint::Primary(constraint_label)
+        } else {
+          let constraint = Constraint::Secondary(ColorItem::new(constraint_label, clue_pos_id));
+          clue_pos_id += 1;
+          constraint
+        };
 
         frequency_map
           .words_with_length(length)
-          .map(|word| {
-            let (id, is_required, clue_instance_id) = word_map.get_mut(word).unwrap();
+          .filter(|word| {
+            self
+              .word_letter_positions(clue_pos, word)
+              .all(|(c, pos)| match self.board().get(pos) {
+                Some(XWordTile::Empty) => true,
+                Some(&XWordTile::Letter(letter)) => letter == c,
+                _ => unreachable!(),
+              })
+          })
+          .flat_map(|word| {
+            let (id, clue_instance_id) = word_map.get_mut(word)?;
             let id = *id;
 
-            let word_constraint = if *is_required {
-              Constraint::Primary(XWordConstraint::Clue { id })
-            } else {
-              let constraint = Constraint::Secondary(ColorItem::new(
-                XWordConstraint::Clue { id },
-                *clue_instance_id,
-              ));
-              *clue_instance_id += 1;
-              constraint
+            let xword_clue = XWordConstraint::Clue { id };
+            let word_constraint = match Self::word_constraint_type() {
+              HeaderType::Primary => Constraint::Primary(xword_clue),
+              HeaderType::Secondary => {
+                let constraint =
+                  Constraint::Secondary(ColorItem::new(xword_clue, *clue_instance_id));
+                *clue_instance_id += 1;
+                constraint
+              }
             };
 
             let mut constraints = vec![clue_pos_constraint.clone(), word_constraint];
             constraints.extend(
               self
-                .word_letter_positions(&clue_pos, word)
+                .word_letter_positions(clue_pos, word)
                 .flat_map(|(c, pos)| {
-                  Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row)
+                  Self::letter_tile_constraints(pos, c, clue_pos.clue_number.is_row).map(
+                    move |constraint| {
+                      let constraint = XWordConstraint::Tile(constraint);
+                      if Self::should_fill_board() {
+                        Constraint::Primary(constraint)
+                      } else {
+                        // Reuse word id here, since we only care about
+                        // conflicting with other words.
+                        Constraint::Secondary(ColorItem::new(constraint, id))
+                      }
+                    },
+                  )
                 }),
             );
 
-            (
-              (
-                XWordClueAssignment {
-                  id,
-                  clue_pos: clue_pos.clone(),
-                },
-                constraints,
-              ),
-              self.word_likelihood_score(word, &clue_pos, &frequency_map),
-            )
+            Some((
+              (XWordClueAssignment { id, clue_pos }, constraints),
+              self.word_likelihood_score(word, clue_pos, &frequency_map),
+            ))
           })
           .collect()
       })
@@ -589,24 +519,95 @@ impl XWord {
       .map(|(constraints, _)| constraints)
   }
 
-  pub fn build_grid_from_assignments<I>(&self, iter: I) -> TermgameResult<Grid<XWordTile>>
+  /// Returns an iterator over all tile constraints for a given clue position.
+  fn clue_tile_constraints(
+    &self,
+    clue_pos: XWordCluePosition,
+    length: u32,
+  ) -> impl Iterator<Item = (XWordConstraint, HeaderType)> + '_ {
+    let is_row = clue_pos.clue_number.is_row;
+
+    let header_type = if Self::should_fill_board() {
+      HeaderType::Primary
+    } else {
+      HeaderType::Secondary
+    };
+
+    self
+      .clue_letter_positions(clue_pos, length)
+      .flat_map(move |pos| {
+        match self.board().get(pos) {
+          Some(&XWordTile::Letter(letter)) => Variant2::Opt1(
+            Self::letter_tile_constraints(pos, letter, is_row)
+              .map(move |constraint| (XWordConstraint::Tile(constraint), header_type)),
+          ),
+          Some(&XWordTile::Empty) => {
+            // Empty tiles are always intersected by a row and a col clue, we
+            // arbitrarily choose the row clue to insert into constraints (if
+            // we allowed both to, there would be duplicates).
+            Variant2::Opt2(
+              is_row
+                .then(|| {
+                  self
+                    .tile_constraints_for_pos(pos)
+                    .map(move |constraint| (XWordConstraint::Tile(constraint), header_type))
+                })
+                .into_iter()
+                .flatten(),
+            )
+          }
+          _ => unreachable!(),
+        }
+      })
+  }
+
+  /// Returns an iterator over (clue_position, word_length, constraints) for all clues.
+  fn build_tile_constraints(
+    &self,
+  ) -> impl Iterator<
+    Item = (
+      XWordCluePosition,
+      u32,
+      impl Iterator<Item = (XWordConstraint, HeaderType)> + '_,
+    ),
+  > + '_ {
+    self
+      .iterate_row_clues()
+      .map(|entry| (entry, true))
+      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
+      .map(|(XWordEntry { number, pos, length }, is_row)| {
+        let clue_number = XWordClueNumber { number, is_row };
+        let clue_pos = XWordCluePosition { clue_number, pos };
+        (
+          clue_pos,
+          length,
+          self
+            .clue_tile_constraints(clue_pos, length)
+            .chain(iter::once((
+              XWordConstraint::ClueNumber(clue_number),
+              if Self::should_fill_board() {
+                HeaderType::Primary
+              } else {
+                HeaderType::Secondary
+              },
+            ))),
+        )
+      })
+  }
+
+  fn build_grid_from_assignments<I>(
+    &self,
+    mut answer_grid: Grid<XWordTile>,
+    iter: I,
+  ) -> TermgameResult<Grid<XWordTile>>
   where
     I: IntoIterator<Item = XWordClueAssignment>,
   {
-    let mut answer_grid = self.board.map(|&is_free| {
-      if is_free {
-        XWordTile::Empty
-      } else {
-        XWordTile::Wall
-      }
-    });
     for XWordClueAssignment { id, clue_pos } in iter {
       let word = self
-        .required_words
-        .get(&id)
-        .or_else(|| self.bank.get(&id))
+        .find_word(id)
         .ok_or_else(|| TermgameError::Internal(format!("Unknown word id {id}")))?;
-      for (c, tile_pos) in self.word_letter_positions(&clue_pos, word) {
+      for (c, tile_pos) in self.word_letter_positions(clue_pos, word) {
         let tile = answer_grid.get_mut(tile_pos).ok_or_else(|| {
           TermgameError::Internal(format!("Position {tile_pos} is out of bounds"))
         })?;
@@ -633,22 +634,478 @@ impl XWord {
 
     Ok(answer_grid)
   }
+}
 
-  pub fn build_dlx(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
-    let constraints = self.build_constraints();
-    let word_assignments = self.build_word_assignments();
-    Dlx::new(constraints, word_assignments)
+pub trait XWordTraits {
+  fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>>;
+
+  fn solve_expected(&self) -> TermgameResult<Grid<XWordTile>> {
+    self
+      .solve()?
+      .ok_or_else(|| TermgameError::Internal("No solution found!".to_owned()).into())
   }
 
-  pub fn solve(&self) -> TermgameResult<Grid<XWordTile>> {
-    self.build_grid_from_assignments(
+  fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>>;
+  fn into_stepwise_iter(self) -> impl Iterator<Item = Grid<XWordTile>>;
+}
+
+#[derive(Clone, Debug)]
+pub struct XWord {
+  board: Grid<XWordTile>,
+  // TODO hold ref to dict to prevent extra copies
+  bank: HashMap<u32, String>,
+}
+
+impl XWord {
+  pub fn from_grid(
+    board: Grid<XWordTile>,
+    bank: impl IntoIterator<Item = String>,
+  ) -> TermgameResult<Self> {
+    let bank = bank
+      .into_iter()
+      .enumerate()
+      .map(|(id, word)| (id as u32, word))
+      .collect();
+
+    Ok(Self { board, bank })
+  }
+
+  pub fn build_grid(board: &str) -> TermgameResult<Grid<XWordTile>> {
+    let (width, height, board) = board.lines().try_fold(
+      (None, 0, vec![]),
+      |(width, height, mut board), line| -> TermgameResult<_> {
+        let line = line.trim();
+        board.extend(
+          line
+            .chars()
+            .map(|c| match c {
+              '_' => Ok(XWordTile::Empty),
+              'X' => Ok(XWordTile::Wall),
+              'a'..='z' => Ok(XWordTile::Letter(c)),
+              _ => Err(TermgameError::Parse(format!("Unrecognized board character '{c}'")).into()),
+            })
+            .collect::<TermgameResult<Vec<_>>>()?,
+        );
+        if let Some(width) = width {
+          if line.len() != width {
+            return Err(
+              TermgameError::Parse(format!(
+                "Board line lengths differ: {} vs {width}",
+                line.len()
+              ))
+              .into(),
+            );
+          }
+        }
+
+        Ok((Some(line.len()), height + 1, board))
+      },
+    )?;
+
+    let width = width.ok_or_else(|| TermgameError::Parse("Empty board string".to_owned()))? as u32;
+    Grid::from_vec(board, width, height as u32)
+  }
+
+  fn entries_for_partition<'a>(
+    &'a self,
+    partition_id: Pos,
+    uf: &'a UnionFind<Pos>,
+  ) -> impl Iterator<Item = (XWordCluePosition, u32)> + 'a {
+    self
+      .iter_board_entries()
+      .filter(move |&(clue_pos, length)| {
+        self
+          .find_empty_word_tile(clue_pos, length)
+          .is_some_and(|empty_pos| uf.find_immut(empty_pos) == partition_id)
+      })
+  }
+
+  fn build_partitioned_word_assignments<'a>(
+    &'a self,
+    uf: &'a UnionFind<Pos>,
+  ) -> impl Iterator<
+    Item = (
+      Pos,
+      impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + 'a,
+    ),
+  > + 'a {
+    uf.root_level_keys().into_iter().map(move |partition_id| {
+      (
+        partition_id,
+        self.build_word_assignments_from_entries(self.entries_for_partition(partition_id, uf)),
+      )
+    })
+  }
+
+  fn build_partition_uf(&self) -> UnionFind<Pos> {
+    let mut uf = UnionFind::from_keys(self.board().positions().filter(|&pos| self.empty(pos)));
+    for (XWordEntry { number, pos, length }, is_row) in self
+      .iterate_row_clues()
+      .map(|entry| (entry, true))
+      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
+    {
+      for (pos1, pos2) in self
+        .clue_letter_positions(
+          XWordCluePosition {
+            pos,
+            clue_number: XWordClueNumber { number, is_row },
+          },
+          length,
+        )
+        .filter(|&pos| self.empty(pos))
+        .tuple_windows()
+      {
+        uf.union(pos1, pos2);
+      }
+    }
+
+    // Debug check that all clues are self-consistent.
+    for (entry, is_row) in self
+      .iterate_row_clues()
+      .map(|entry| (entry, true))
+      .chain(self.iterate_col_clues().map(|entry| (entry, false)))
+    {
+      let XWordEntry { number, pos, length } = entry;
+      debug_assert!(self
+        .clue_letter_positions(
+          XWordCluePosition {
+            pos,
+            clue_number: XWordClueNumber { number, is_row }
+          },
+          length
+        )
+        .filter(|&pos| self.empty(pos))
+        .map(|pos| { uf.find(pos) })
+        .all_equal());
+    }
+
+    uf
+  }
+
+  fn build_partitioned_subproblems(&self) -> HashMap<Pos, ProblemParameters> {
+    let mut uf = self.build_partition_uf();
+
+    let mut subproblem_map = HashMap::<Pos, ProblemParameters>::new();
+    for (pos, constraints) in
       self
-        .build_dlx()
-        .find_solutions()
-        .with_names()
-        .next()
-        .ok_or_else(|| TermgameError::Internal("No solution found".to_owned()))?,
+        .build_tile_constraints()
+        .filter_map(|(clue_position, length, constraints)| {
+          self
+            .find_empty_word_tile(clue_position, length)
+            .map(|pos| (pos, constraints))
+        })
+    {
+      let uf_id = uf.find(pos);
+      subproblem_map
+        .entry(uf_id)
+        .or_default()
+        .constraints
+        .extend(constraints);
+    }
+
+    for (partition_id, assignments) in self.build_partitioned_word_assignments(&uf) {
+      let subproblem = subproblem_map.entry(partition_id).or_default();
+      subproblem.word_assignments.extend(assignments);
+    }
+
+    subproblem_map
+      .values_mut()
+      .for_each(|ProblemParameters { constraints, .. }| {
+        constraints.extend(self.build_clue_constraints());
+      });
+
+    subproblem_map
+  }
+
+  pub fn build_dlx_solvers(&self) -> HashMap<Pos, Dlx<XWordConstraint, XWordClueAssignment>> {
+    self
+      .build_partitioned_subproblems()
+      .into_iter()
+      .map(|(pos, params)| (pos, params.build_dlx()))
+      .collect()
+  }
+
+  pub fn solve_parallel(&self) -> TermgameResult<Grid<XWordTile>> {
+    // Should use tokio primitives
+    todo!();
+  }
+
+  /// TODO: return DlxStepwiseIterResult so WithRequired stepwise iter can halt
+  /// on solution.
+  fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = Grid<XWordTile>>
+  where
+    S: Borrow<Self>,
+  {
+    enum IterOrSolution<I> {
+      Iter(I),
+      Solution(Vec<XWordClueAssignment>),
+    }
+
+    let dlx_iters: Vec<_> = s
+      .borrow()
+      .build_dlx_solvers()
+      .into_values()
+      .map(|dlx| IterOrSolution::Iter(dlx.into_solutions_stepwise().with_names()))
+      .collect();
+
+    once(()).cycle().scan(dlx_iters, move |dlx_iters, _| {
+      if dlx_iters
+        .iter()
+        .all(|iter| matches!(iter, IterOrSolution::Solution(_)))
+      {
+        return None;
+      }
+
+      let selected_items = dlx_iters.iter_mut().flat_map(|iter| match iter {
+        IterOrSolution::Iter(dlx_iter) => {
+          if let Some(result) = dlx_iter.next() {
+            match result {
+              StepwiseDlxIterResult::Step(solution) => solution,
+              StepwiseDlxIterResult::Solution(solution) => {
+                *iter = IterOrSolution::Solution(solution.clone());
+                solution
+              }
+            }
+          } else {
+            *iter = IterOrSolution::Solution(vec![]);
+            vec![]
+          }
+        }
+        IterOrSolution::Solution(solution) => solution.clone(),
+      });
+      Some(
+        s.borrow()
+          .build_grid_from_assignments(s.borrow().board().clone(), selected_items)
+          .ok(),
+      )
+      .flatten()
+    })
+  }
+}
+
+impl XWordInternal for XWord {
+  fn words(&self) -> impl Iterator<Item = (u32, &'_ str)> {
+    self.bank.iter().map(|(&id, word)| (id, word.as_str()))
+  }
+
+  fn find_word(&self, word_id: u32) -> Option<&'_ str> {
+    self.bank.get(&word_id).map(|str| str.as_str())
+  }
+
+  fn universal_words(&self) -> impl Iterator<Item = &'_ str> {
+    self.words().map(|(_, word)| word)
+  }
+
+  fn board(&self) -> &Grid<XWordTile> {
+    &self.board
+  }
+
+  fn should_fill_board() -> bool {
+    true
+  }
+
+  fn word_constraint_type() -> HeaderType {
+    // No words are required to be used.
+    HeaderType::Secondary
+  }
+}
+
+impl XWordTraits for XWord {
+  fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    self
+      .build_dlx_solvers()
+      .into_values()
+      .try_fold(Some(self.board().clone()), |board, mut dlx| {
+        if let Some(board) = board {
+          if let Some(solution) = dlx.find_solutions().with_names().next() {
+            return Ok(Some(self.build_grid_from_assignments(board, solution)?));
+          }
+        }
+        Ok(None)
+      })
+  }
+
+  fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
+  }
+
+  fn into_stepwise_iter(self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct XWordWithRequired {
+  board: Grid<XWordTile>,
+  bank: HashMap<u32, String>,
+  required_words: HashMap<u32, String>,
+}
+
+impl XWordWithRequired {
+  pub fn from_grid(
+    board: Grid<XWordTile>,
+    required_words: impl IntoIterator<Item = String>,
+    bank: impl IntoIterator<Item = String>,
+  ) -> TermgameResult<Self> {
+    let required_words: HashMap<_, _> = required_words
+      .into_iter()
+      .enumerate()
+      .map(|(id, word)| (id as u32, word))
+      .collect();
+
+    let required_words_set: HashSet<_> = required_words
+      .values()
+      .map(|word| word.to_owned())
+      .collect();
+    let bank = bank
+      .into_iter()
+      .filter(|word| !required_words_set.contains(word))
+      .enumerate()
+      .map(|(id, word)| ((id + required_words.len()) as u32, word))
+      .collect();
+
+    Ok(Self { board, bank, required_words })
+  }
+
+  fn build_word_assignments(
+    &self,
+  ) -> impl Iterator<Item = (XWordClueAssignment, Vec<Constraint<XWordConstraint>>)> + '_ {
+    self.build_word_assignments_from_entries(self.iter_board_entries())
+  }
+
+  fn build_params(&self) -> ProblemParameters {
+    let mut params = ProblemParameters::default();
+
+    params.constraints.extend(
+      self
+        .build_tile_constraints()
+        .flat_map(|(_, _, constraints)| constraints),
+    );
+    params.constraints.extend(self.build_clue_constraints());
+
+    params
+      .word_assignments
+      .extend(self.build_word_assignments());
+
+    params
+  }
+
+  pub fn build_dlx_solver(&self) -> Dlx<XWordConstraint, XWordClueAssignment> {
+    self.build_params().build_dlx()
+  }
+
+  fn make_stepwise_iter<S>(s: S) -> impl Iterator<Item = Grid<XWordTile>>
+  where
+    S: Borrow<Self>,
+  {
+    let stepwise_iter = s
+      .borrow()
+      .build_dlx_solver()
+      .into_solutions_stepwise()
+      .with_names();
+
+    once(()).cycle().scan(
+      (stepwise_iter, Option::<Box<dyn Iterator<Item = _>>>::None),
+      move |(iter, inner), _| -> Option<_> {
+        if let Some(inner_iter) = inner {
+          match inner_iter.next() {
+            Some(solution) => return Some(solution),
+            None => {
+              *inner = None;
+            }
+          }
+        }
+
+        let solution = match iter.next()? {
+          StepwiseDlxIterResult::Step(solution) => solution,
+          StepwiseDlxIterResult::Solution(solution) => {
+            let xword = XWord::from_grid(
+              s.borrow()
+                .build_grid_from_assignments(s.borrow().board().clone(), solution.clone())
+                .ok()?,
+              s.borrow().bank.values().cloned(),
+            )
+            .ok()?;
+            *inner = Some(Box::new(xword.into_stepwise_iter()));
+            solution
+          }
+        };
+
+        s.borrow()
+          .build_grid_from_assignments(s.borrow().board().clone(), solution)
+          .ok()
+      },
     )
+  }
+
+  pub fn build_grid_from_assignments<I>(
+    &self,
+    answer_grid: Grid<XWordTile>,
+    iter: I,
+  ) -> TermgameResult<Grid<XWordTile>>
+  where
+    I: IntoIterator<Item = XWordClueAssignment>,
+  {
+    (XWordInternal::build_grid_from_assignments)(self, answer_grid, iter)
+  }
+}
+
+impl XWordInternal for XWordWithRequired {
+  fn words(&self) -> impl Iterator<Item = (u32, &'_ str)> {
+    self
+      .required_words
+      .iter()
+      .map(|(&id, word)| (id, word.as_str()))
+  }
+
+  fn find_word(&self, word_id: u32) -> Option<&'_ str> {
+    self.required_words.get(&word_id).map(|str| str.as_str())
+  }
+
+  fn universal_words(&self) -> impl Iterator<Item = &'_ str> {
+    self
+      .required_words
+      .values()
+      .chain(self.bank.values())
+      .map(|str| str.as_str())
+  }
+
+  fn board(&self) -> &Grid<XWordTile> {
+    &self.board
+  }
+
+  fn should_fill_board() -> bool {
+    false
+  }
+
+  fn word_constraint_type() -> HeaderType {
+    // Require all words to be placed in the puzzle.
+    HeaderType::Primary
+  }
+}
+
+impl XWordTraits for XWordWithRequired {
+  fn solve(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    self
+      .build_dlx_solver()
+      .into_solutions()
+      .with_names()
+      .find_map(|required_words_solution| {
+        self
+          .build_grid_from_assignments(self.board().clone(), required_words_solution)
+          .and_then(|board| XWord::from_grid(board, self.bank.values().cloned()))
+          .and_then(|xword| xword.solve())
+          .transpose()
+      })
+      .transpose()
+  }
+
+  fn stepwise_board_iter(&self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
+  }
+
+  fn into_stepwise_iter(self) -> impl Iterator<Item = Grid<XWordTile>> {
+    Self::make_stepwise_iter(self)
   }
 }
 
@@ -656,9 +1113,9 @@ impl XWord {
 mod tests {
   #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-  use std::collections::HashSet;
+  use std::{collections::HashSet, iter::once};
 
-  use dlx::{ColorItem, Constraint, HeaderType};
+  use dlx::{ColorItem, Constraint, DlxIteratorWithNames, HeaderType};
   use googletest::prelude::*;
   use util::{
     error::TermgameResult,
@@ -668,10 +1125,10 @@ mod tests {
 
   use crate::xword::{
     LetterFrequencyMap, XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint,
-    XWordTile, NUM_TILE_BITS,
+    XWordInternal, XWordTile, XWordTraits, XWordWithRequired, NUM_TILE_BITS, NUM_TILE_SELECTIONS,
   };
 
-  use super::XWord;
+  use super::{XWord, XWordTileConstraint};
 
   #[gtest]
   fn test_empty() {
@@ -768,44 +1225,6 @@ mod tests {
   }
 
   #[gtest]
-  fn test_constraints() -> TermgameResult {
-    let xword = XWord::from_grid(
-      XWord::build_grid(
-        "__
-         X_",
-      )?,
-      ["ab", "bc"].into_iter().map(|str| str.to_owned()),
-    )?;
-
-    let constraints: HashSet<_> = xword.build_constraints().collect();
-
-    let expected_constraints: HashSet<_> = [false, true]
-      .into_iter()
-      .flat_map(|is_row| {
-        (0..=1).map(move |number| {
-          (
-            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
-            HeaderType::Primary,
-          )
-        })
-      })
-      .chain(
-        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
-          .into_iter()
-          .flat_map(|pos| {
-            (0..NUM_TILE_BITS)
-              .map(move |bit| (XWordConstraint::Tile { pos, bit }, HeaderType::Primary))
-          }),
-      )
-      .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
-      .collect();
-
-    expect_that!(constraints, container_eq(expected_constraints));
-
-    Ok(())
-  }
-
-  #[gtest]
   fn test_iter_board_entries() -> TermgameResult {
     let xword = XWord::from_grid(
       XWord::build_grid(
@@ -821,70 +1240,49 @@ mod tests {
         &(
           XWordCluePosition {
             pos: Pos { x: 0, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 0,
-              is_row: true
-            }
+            clue_number: XWordClueNumber { number: 0, is_row: true }
           },
           4
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 0, y: 1 },
-            clue_number: XWordClueNumber {
-              number: 1,
-              is_row: true
-            }
+            clue_number: XWordClueNumber { number: 1, is_row: true }
           },
           1
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 2, y: 1 },
-            clue_number: XWordClueNumber {
-              number: 2,
-              is_row: true
-            }
+            clue_number: XWordClueNumber { number: 2, is_row: true }
           },
           2
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 0, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 0,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 0, is_row: false }
           },
           2
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 1, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 1,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 1, is_row: false }
           },
           1
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 2, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 2,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 2, is_row: false }
           },
           2
         ),
         &(
           XWordCluePosition {
             pos: Pos { x: 3, y: 0 },
-            clue_number: XWordClueNumber {
-              number: 3,
-              is_row: false
-            }
+            clue_number: XWordClueNumber { number: 3, is_row: false }
           },
           2
         ),
@@ -1085,12 +1483,9 @@ mod tests {
     expect_float_eq!(
       xword.word_likelihood_score(
         "yab",
-        &XWordCluePosition {
+        XWordCluePosition {
           pos: Pos { x: 0, y: 0 },
-          clue_number: XWordClueNumber {
-            number: 0,
-            is_row: false,
-          },
+          clue_number: XWordClueNumber { number: 0, is_row: false },
         },
         &frequency_map,
       ),
@@ -1100,12 +1495,9 @@ mod tests {
     expect_float_eq!(
       xword.word_likelihood_score(
         "weal",
-        &XWordCluePosition {
+        XWordCluePosition {
           pos: Pos { x: 3, y: 0 },
-          clue_number: XWordClueNumber {
-            number: 3,
-            is_row: false,
-          },
+          clue_number: XWordClueNumber { number: 3, is_row: false },
         },
         &frequency_map,
       ),
@@ -1115,18 +1507,60 @@ mod tests {
     expect_float_eq!(
       xword.word_likelihood_score(
         "ey",
-        &XWordCluePosition {
+        XWordCluePosition {
           pos: Pos { x: 2, y: 1 },
-          clue_number: XWordClueNumber {
-            number: 2,
-            is_row: true,
-          },
+          clue_number: XWordClueNumber { number: 2, is_row: true },
         },
         &frequency_map,
       ),
       (2. / 4.) * (1. / 5.)
     );
 
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_letter_tile_constraints() -> googletest::Result<()> {
+    let pos = Pos { x: 2, y: 5 };
+    for is_row in [false, true] {
+      for letter in 'a'..='z' {
+        let letter_constraints: Vec<_> =
+          XWord::letter_tile_constraints(pos, letter, is_row).collect();
+        assert_eq!(letter_constraints.len(), NUM_TILE_SELECTIONS as usize);
+
+        let contains_any_matcher = || {
+          contains(any![
+            eq(&letter_constraints[0]),
+            eq(&letter_constraints[1]),
+            eq(&letter_constraints[2]),
+            eq(&letter_constraints[3]),
+            eq(&letter_constraints[4]),
+          ])
+        };
+        let contains_none_matcher = || {
+          each(all![
+            not(eq(&letter_constraints[0])),
+            not(eq(&letter_constraints[1])),
+            not(eq(&letter_constraints[2])),
+            not(eq(&letter_constraints[3])),
+            not(eq(&letter_constraints[4])),
+          ])
+        };
+
+        // Verify that no letters in the opposing direction are compatible
+        // unless they are the same.
+        for other_letter in 'a'..='z' {
+          let other_constraints: Vec<_> =
+            XWord::letter_tile_constraints(pos, other_letter, !is_row).collect();
+
+          if letter == other_letter {
+            verify_that!(other_constraints, contains_none_matcher())?;
+          } else {
+            verify_that!(other_constraints, contains_any_matcher())?;
+          }
+        }
+      }
+    }
     Ok(())
   }
 
@@ -1143,7 +1577,13 @@ mod tests {
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let c_id = xword.testonly_word_id("c").expect("word c not found");
 
-    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+    let uf = xword.build_partition_uf();
+    let word_assignments: Vec<_> = xword
+      .build_partitioned_word_assignments(&uf)
+      .next()
+      .expect("Unexpected empty iterator over partitioned word assignments.")
+      .1
+      .collect();
     expect_that!(
       word_assignments,
       unordered_elements_are![
@@ -1152,23 +1592,29 @@ mod tests {
             id: &ab_id,
             clue_pos: pat!(XWordCluePosition {
               pos: &Pos::zero(),
-              clue_number: pat!(XWordClueNumber {
-                number: &0,
-                is_row: &true
-              })
+              clue_number: pat!(XWordClueNumber { number: &0, is_row: &true })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &0,
-                is_row: &true
-              })
+              pat!(XWordClueNumber { number: &0, is_row: &true })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: ab_id },
               0
             ))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &0, y: &0 }),
+                bit: anything()
+              }
+            ))))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              }
+            )))))
           ]
         ),
         (
@@ -1176,23 +1622,29 @@ mod tests {
             id: &ab_id,
             clue_pos: pat!(XWordCluePosition {
               pos: pat!(Pos { x: &1, y: &0 }),
-              clue_number: pat!(XWordClueNumber {
-                number: &1,
-                is_row: &false
-              })
+              clue_number: pat!(XWordClueNumber { number: &1, is_row: &false })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &1,
-                is_row: &false
-              })
+              pat!(XWordClueNumber { number: &1, is_row: &false })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: ab_id },
               1
             ))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              }
+            ))))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Tile(pat!(
+              XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &1 }),
+                bit: anything()
+              }
+            )))))
           ]
         ),
         (
@@ -1200,18 +1652,12 @@ mod tests {
             id: &c_id,
             clue_pos: pat!(XWordCluePosition {
               pos: pat!(Pos { x: &1, y: &1 }),
-              clue_number: pat!(XWordClueNumber {
-                number: &1,
-                is_row: &true
-              })
+              clue_number: pat!(XWordClueNumber { number: &1, is_row: &true })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &1,
-                is_row: &true
-              })
+              pat!(XWordClueNumber { number: &1, is_row: &true })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: c_id },
@@ -1224,22 +1670,111 @@ mod tests {
             id: &c_id,
             clue_pos: pat!(XWordCluePosition {
               pos: pat!(Pos { x: &0, y: &0 }),
-              clue_number: pat!(XWordClueNumber {
-                number: &0,
-                is_row: &false
-              })
+              clue_number: pat!(XWordClueNumber { number: &0, is_row: &false })
             })
           }),
           contains_each![
             pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-              pat!(XWordClueNumber {
-                number: &0,
-                is_row: &false
-              })
+              pat!(XWordClueNumber { number: &0, is_row: &false })
             )))),
             pat!(Constraint::Secondary(&ColorItem::new(
               XWordConstraint::Clue { id: c_id },
               1
+            ))),
+          ]
+        ),
+      ]
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_word_assignments_with_required() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab"].into_iter().map(|str| str.to_owned()),
+      ["c"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
+
+    type XWordColorItem = ColorItem<XWordConstraint>;
+
+    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+    expect_that!(
+      word_assignments,
+      unordered_elements_are![
+        (
+          pat!(XWordClueAssignment {
+            id: &ab_id,
+            clue_pos: pat!(XWordCluePosition {
+              pos: &Pos::zero(),
+              clue_number: pat!(XWordClueNumber { number: &0, is_row: &true })
+            })
+          }),
+          contains_each![
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::ClueNumber(pat!(XWordClueNumber {
+                number: &0,
+                is_row: &true
+              })))
+            ))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Clue {
+              id: &ab_id
+            }))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &0, y: &0 }),
+                bit: anything()
+              })))
+            ))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              })))
+            ))),
+          ]
+        ),
+        (
+          pat!(XWordClueAssignment {
+            id: &ab_id,
+            clue_pos: pat!(XWordCluePosition {
+              pos: pat!(Pos { x: &1, y: &0 }),
+              clue_number: pat!(XWordClueNumber { number: &1, is_row: &false })
+            })
+          }),
+          contains_each![
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::ClueNumber(pat!(XWordClueNumber {
+                number: &1,
+                is_row: &false
+              })))
+            ))),
+            pat!(Constraint::Primary(pat!(XWordConstraint::Clue {
+              id: &ab_id
+            }))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &0 }),
+                bit: anything()
+              })))
+            ))),
+            pat!(Constraint::Secondary(property!(
+              &XWordColorItem.item(),
+              pat!(XWordConstraint::Tile(pat!(XWordTileConstraint {
+                pos: pat!(Pos { x: &1, y: &1 }),
+                bit: anything()
+              })))
             ))),
           ]
         ),
@@ -1262,7 +1797,13 @@ mod tests {
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
     let ca_id = xword.testonly_word_id("ca").expect("word ca not found");
 
-    let word_assignments: Vec<_> = xword.build_word_assignments().collect();
+    let uf = xword.build_partition_uf();
+    let word_assignments: Vec<_> = xword
+      .build_partitioned_word_assignments(&uf)
+      .next()
+      .expect("Unexpected empty iterator over partitioned word assignments.")
+      .1
+      .collect();
 
     let first_row_assignments: Vec<_> = word_assignments
       .iter()
@@ -1281,10 +1822,7 @@ mod tests {
       elements_are![
         contains_each![
           pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-            pat!(XWordClueNumber {
-              number: &0,
-              is_row: &true
-            })
+            pat!(XWordClueNumber { number: &0, is_row: &true })
           )))),
           pat!(Constraint::Secondary(property!(
             &XWordColorItem.item(),
@@ -1293,10 +1831,7 @@ mod tests {
         ],
         contains_each![
           pat!(Constraint::Primary(pat!(XWordConstraint::ClueNumber(
-            pat!(XWordClueNumber {
-              number: &0,
-              is_row: &true
-            })
+            pat!(XWordClueNumber { number: &0, is_row: &true })
           )))),
           pat!(Constraint::Secondary(property!(
             &XWordColorItem.item(),
@@ -1305,6 +1840,144 @@ mod tests {
         ],
       ]
     );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_build_partition_uf() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "___X___
+         ___XXX_
+         XaXXbcd
+         ___X_XX
+         ___X___",
+      )?,
+      [],
+    )?;
+
+    let mut uf = xword.build_partition_uf();
+    assert_eq!(uf.root_level_keys().len(), 3);
+
+    let group1 = uf.find(Pos::zero());
+    let group2 = uf.find(Pos { x: 4, y: 0 });
+    let group3 = uf.find(Pos { x: 4, y: 3 });
+
+    let mut tiles_in_group = |group: Pos| -> Vec<_> {
+      xword
+        .board
+        .positions()
+        .filter(|&pos| xword.empty(pos) && uf.find(pos) == group)
+        .collect()
+    };
+
+    let group1_tiles = tiles_in_group(group1);
+    expect_eq!(group1_tiles.len(), 12);
+    expect_that!(group1_tiles, each(field!(Pos.x, lt(&3))));
+
+    let group2_tiles = tiles_in_group(group2);
+    expect_eq!(group2_tiles.len(), 4);
+    expect_that!(
+      group2_tiles,
+      each(all![field!(Pos.x, gt(&3)), field!(Pos.y, lt(&2))])
+    );
+
+    let group3_tiles = tiles_in_group(group3);
+    expect_eq!(group3_tiles.len(), 4);
+    expect_that!(
+      group3_tiles,
+      each(all![field!(Pos.x, gt(&3)), field!(Pos.y, gt(&2))])
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_build_partitioned_subproblems() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab", "bc"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let subproblems = xword.build_partitioned_subproblems();
+    assert_eq!(subproblems.len(), 1);
+    let params = subproblems.into_values().next().unwrap();
+    let constraints: HashSet<_> = params.constraints.into_iter().collect();
+
+    let expected_constraints: HashSet<_> = [false, true]
+      .into_iter()
+      .flat_map(|is_row| {
+        (0..=1).map(move |number| {
+          (
+            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+            HeaderType::Primary,
+          )
+        })
+      })
+      .chain(
+        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
+          .into_iter()
+          .flat_map(|pos| {
+            (0..NUM_TILE_BITS).map(move |bit| {
+              (
+                XWordConstraint::Tile(XWordTileConstraint { pos, bit }),
+                HeaderType::Primary,
+              )
+            })
+          }),
+      )
+      .chain((0..=1).map(|id| (XWordConstraint::Clue { id }, HeaderType::Secondary)))
+      .collect();
+
+    expect_that!(constraints, container_eq(expected_constraints));
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_build_params_with_required() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "__
+         X_",
+      )?,
+      ["ab"].into_iter().map(|str| str.to_owned()),
+      ["bc"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    let params = xword.build_params();
+    let constraints: HashSet<_> = params.constraints.into_iter().collect();
+
+    let expected_constraints: HashSet<_> = [false, true]
+      .into_iter()
+      .flat_map(|is_row| {
+        (0..=1).map(move |number| {
+          (
+            XWordConstraint::ClueNumber(XWordClueNumber { number, is_row }),
+            HeaderType::Secondary,
+          )
+        })
+      })
+      .chain(
+        [Pos { x: 0, y: 0 }, Pos { x: 1, y: 0 }, Pos { x: 1, y: 1 }]
+          .into_iter()
+          .flat_map(|pos| {
+            (0..NUM_TILE_BITS).map(move |bit| {
+              (
+                XWordConstraint::Tile(XWordTileConstraint { pos, bit }),
+                HeaderType::Secondary,
+              )
+            })
+          }),
+      )
+      .chain(once((XWordConstraint::Clue { id: 0 }, HeaderType::Primary)))
+      .collect();
+
+    expect_that!(constraints, container_eq(expected_constraints));
 
     Ok(())
   }
@@ -1319,9 +1992,7 @@ mod tests {
       ["a", "c", "ab", "bc"].into_iter().map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve_expected()?;
     expect_that!(
       solution.get(Pos { x: 0, y: 0 }).cloned(),
       some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
@@ -1344,7 +2015,7 @@ mod tests {
 
   #[gtest]
   fn test_small_dict_required() -> TermgameResult {
-    let xword = XWord::from_grid_with_required(
+    let xword = XWordWithRequired::from_grid(
       XWord::build_grid(
         "__
          X_",
@@ -1355,9 +2026,7 @@ mod tests {
         .map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve_expected()?;
     expect_that!(
       solution.get(Pos { x: 0, y: 0 }).cloned(),
       some(any!(&XWordTile::Letter('a'), &XWordTile::Letter('c')))
@@ -1395,9 +2064,7 @@ mod tests {
       .map(|str| str.to_owned()),
     )?;
 
-    let solution = xword.solve();
-    assert_that!(solution, ok(anything()));
-    let solution = solution.unwrap();
+    let solution = xword.solve_expected()?;
 
     use XWordTile::*;
 
@@ -1412,6 +2079,148 @@ mod tests {
       ], 5, 5,
     ).unwrap();
     expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_mini_with_partial() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "Xa
+         _b",
+      )?,
+      ["a", "xa", "x", "c", "aa", "cb"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        Wall,        Letter('a'),
+        Letter('c'), Letter('b'),
+      ], 2, 2,
+    ).unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_two_partitions() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "_Xc__
+         __aX_
+         __tX_",
+      )?,
+      ["hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        Letter('h'), Wall,        Letter('c'), Letter('o'), Letter('g'),
+        Letter('a'), Letter('b'), Letter('a'), Wall,        Letter('u'),
+        Letter('h'), Letter('a'), Letter('t'), Wall,        Letter('y'),
+      ], 5, 3,
+    ).unwrap();
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_two_partitions_with_required() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "_Xc_
+         __aX
+         __tX",
+      )?,
+      ["ttt"].into_iter().map(|str| str.to_owned()),
+      ["hat", "aba", "tat", "ba", "bt", "h", "co", "o"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    let solution = xword.solve_expected()?;
+
+    use XWordTile::*;
+
+    #[rustfmt::skip]
+    let expected_solution = Grid::from_vec(
+      vec![
+        Letter('h'), Wall,        Letter('c'), Letter('o'),
+        Letter('a'), Letter('b'), Letter('a'), Wall,
+        Letter('t'), Letter('t'), Letter('t'), Wall,
+      ], 4, 3,
+    )?;
+    expect_eq!(solution, expected_solution);
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_only() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "_Xc__
+         __aXX
+         __tXX",
+      )?,
+      ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
+      [],
+    )?;
+
+    let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
+    let got_id = xword.testonly_word_id("got").expect("word got not found");
+    let cof_id = xword.testonly_word_id("cof").expect("word cof not found");
+
+    let mut solver = xword.build_dlx_solver();
+    let solution = solver
+      .find_solutions()
+      .with_names()
+      .next()
+      .expect("No solution found");
+
+    expect_that!(
+      solution,
+      unordered_elements_are![
+        pat!(XWordClueAssignment {
+          id: &dog_id,
+          clue_pos: pat!(XWordCluePosition {
+            pos: pat!(Pos { x: &0, y: &0 }),
+            clue_number: pat!(XWordClueNumber { number: &0, is_row: &false })
+          })
+        }),
+        pat!(XWordClueAssignment {
+          id: &got_id,
+          clue_pos: pat!(XWordCluePosition {
+            pos: pat!(Pos { x: &0, y: &2 }),
+            clue_number: pat!(XWordClueNumber { number: &3, is_row: &true })
+          })
+        }),
+        pat!(XWordClueAssignment {
+          id: &cof_id,
+          clue_pos: pat!(XWordCluePosition {
+            pos: pat!(Pos { x: &2, y: &0 }),
+            clue_number: pat!(XWordClueNumber { number: &1, is_row: &true })
+          })
+        })
+      ]
+    );
 
     Ok(())
   }

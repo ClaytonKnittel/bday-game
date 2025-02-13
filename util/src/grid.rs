@@ -65,6 +65,11 @@ impl<T> Grid<T> {
     x + y * self.width as usize
   }
 
+  pub fn positions(&self) -> impl Iterator<Item = Pos> {
+    let width = self.width;
+    (0..self.height as i32).flat_map(move |y| (0..width as i32).map(move |x| Pos { x, y }))
+  }
+
   pub fn map<F, U>(&self, f: F) -> Grid<U>
   where
     F: FnMut(&T) -> U,

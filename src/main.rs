@@ -21,7 +21,7 @@ use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
 use xword_gen::{
   dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
-  xword::{XWord, XWordTile},
+  xword::{XWord, XWordTile, XWordTraits, XWordWithRequired},
 };
 
 const GRID_PATH: &str = "./grid.bin";
@@ -106,30 +106,59 @@ const fn sunday() -> &'static str {
    ______X_______X________"
 }
 
+const fn partial_sunday() -> &'static str {
+  "________Xc______X______
+   ________Xl______X______
+   ________Xa______X______
+   ___X_____yX____X___X___
+   ____XX___t_XXXX___X____
+   ______X__o__XX____X____
+   XXX____X_n__X____X_____
+   ___X_____X______X______
+   ________X_____X_____XXX
+   _____X_______XXX_______
+   _____XX_____X______X___
+   ____X______X______X____
+   ___X______X_____XX_____
+   _______XXX_______X_____
+   XXX____X______X________
+   ______X______X_____X___
+   _____X____X____X____XXX
+   ____X___XXX_____X______
+   ____XsmellyX_____XX____
+   ___X___X____XX_____X___
+   ______X_______X________
+   ______X_______X________
+   ______X_______X________"
+}
+
 fn mega_grid() -> TermgameResult<Grid<bool>> {
   Ok(bitcode::decode(&fs::read("./grid.bin")?)?)
 }
 
 fn interactive_grid() -> TermgameResult {
   let mut ev = EventLoop::new()?;
-  let grid = read_grid(GRID_PATH).unwrap_or_else(|_| InteractiveGrid::new(50, 50));
+  let grid = read_grid(GRID_PATH).or_else(|_| -> TermgameResult<_> {
+    Ok(InteractiveGrid::from_grid(Grid::from_vec(
+      vec![XWordTile::Empty; 50 * 51],
+      50,
+      51,
+    )?))
+  })?;
   let grid_uid = ev.scene().add_entity(Box::new(grid));
 
-  let pc_uid = ev
-    .scene()
-    .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
   ev.run_event_loop(|scene, window, _| {
     let width = window.width() as i32;
     let height = window.height() as i32;
 
-    let pc: &Pc = scene.entity(pc_uid)?;
     let grid: &InteractiveGrid = scene.entity(grid_uid)?;
+    let cursor_pos = grid.cursor_screen_pos();
     let camera_pos = window.camera_pos_mut();
 
-    camera_pos.x = (pc.pos().x - width / 2)
+    camera_pos.x = (cursor_pos.x - width / 2)
       .max(0)
       .min((grid.screen_width()).saturating_sub(width as u32) as i32);
-    camera_pos.y = (pc.pos().y - height / 2)
+    camera_pos.y = (cursor_pos.y - height / 2)
       .max(0)
       .min((grid.screen_height()).saturating_sub(height as u32) as i32);
 
@@ -147,42 +176,30 @@ fn interactive_grid() -> TermgameResult {
 }
 
 fn show_dlx_iters() -> TermgameResult {
-  let mut ev = EventLoop::new()?;
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let orig_grid = XWord::build_grid(sunday())?;
-  // let orig_grid = mega_grid()?;
-  let grid = orig_grid.map(|&is_empty| {
-    if is_empty {
-      XWordTile::Empty
-    } else {
-      XWordTile::Wall
-    }
-  });
-  let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
+  let grid = XWord::build_grid(partial_sunday())?;
+  // let grid = mega_grid()?;
 
   // const REQUIRED: [&str; 0] = [];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 24] = [
-    "clayton", "eugenia", "andrew", "jackson","matt", "bchan", "austen", "paul",
-    "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
-    "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
+  const REQUIRED: [&str; 4] = [
+    "clayton", "eugenia", "andrew", "jackson", // "matt", "bchan", "austen", "paul",
+    // "kevin", "kmoney", "paige", "kyle", "nina", "anne", "ethan", "jonathan",
+    // "rose", "alex", "cindy", "cooper", "jessica", "kathy", "laney", "sruthi",
     // "christina",
   ];
 
-  let xword_solver =
-    XWord::from_grid_with_required(orig_grid, REQUIRED.map(|str| str.to_owned()), build_dict()?)?;
-  let mut dlx = xword_solver.build_dlx();
-  let mut x_iter = dlx
-    .find_solutions_stepwise()
-    .with_names()
-    .map(|partial_solution| match partial_solution {
-      StepwiseDlxIterResult::Step(solution) => {
-        StepwiseDlxIterResult::Step(xword_solver.build_grid_from_assignments(solution))
-      }
-      StepwiseDlxIterResult::Solution(solution) => {
-        StepwiseDlxIterResult::Solution(xword_solver.build_grid_from_assignments(solution))
-      }
-    });
+  let xword_solver = XWordWithRequired::from_grid(
+    grid.clone(),
+    REQUIRED.map(|str| str.to_owned()),
+    build_dict()?,
+  )?;
+  let mut x_iter = xword_solver.stepwise_board_iter();
+
+  let mut ev = EventLoop::new()?;
+  let xword_uid = ev
+    .scene()
+    .add_entity(Box::new(Crossword::from_grid(grid.clone())));
 
   let mut done = false;
   let pc_uid = ev
@@ -194,14 +211,7 @@ fn show_dlx_iters() -> TermgameResult {
 
     if !done {
       if let Some(grid) = x_iter.next() {
-        let grid = match grid {
-          StepwiseDlxIterResult::Step(grid) => grid,
-          StepwiseDlxIterResult::Solution(grid) => {
-            done = true;
-            grid
-          }
-        };
-        scene.entity_mut::<Crossword>(xword_uid)?.swap_grid(grid?);
+        scene.entity_mut::<Crossword>(xword_uid)?.swap_grid(grid);
       } else {
         done = true;
       }

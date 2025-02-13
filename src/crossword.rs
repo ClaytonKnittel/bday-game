@@ -161,10 +161,7 @@ impl Entity for Crossword {
         .flat_map(move |y| {
           (0..self.width() as i32)
             .flat_map(move |x| {
-              let pos = Pos {
-                x: x * Self::XSCALE,
-                y: y * Self::YSCALE,
-              };
+              let pos = Pos { x: x * Self::XSCALE, y: y * Self::YSCALE };
 
               (0..Self::YSCALE).flat_map(move |dy| {
                 (0..Self::XSCALE).flat_map(move |dx| {
@@ -198,10 +195,7 @@ impl Entity for Crossword {
               })
             })
             .chain((0..Self::YSCALE).map(move |dy| {
-              let grid_pos = Pos {
-                x: self.width() as i32,
-                y,
-              };
+              let grid_pos = Pos { x: self.width() as i32, y };
               let tile = if y == 0 && dy == 0 {
                 // ┓
                 '\u{2513}'
@@ -221,10 +215,7 @@ impl Entity for Crossword {
         })
         .chain((0..self.width() as i32).flat_map(move |x| {
           (0..Self::XSCALE).map(move |dx| {
-            let grid_pos = Pos {
-              x,
-              y: self.height() as i32,
-            };
+            let grid_pos = Pos { x, y: self.height() as i32 };
             let tile = if x == 0 && dx == 0 {
               // ┗
               '\u{2517}'
