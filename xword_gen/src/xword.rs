@@ -2275,4 +2275,134 @@ mod tests {
 
     Ok(())
   }
+
+  #[gtest]
+  fn test_stepwise_board_iter() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "_____
+         _____
+         _____",
+      )?,
+      ["cde"].into_iter().map(|str| str.to_owned()),
+      ["abc", "bcd", "cde", "dea", "eab", "abcde", "bcdea", "cdeab"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    let mut stepwise_iter = xword.stepwise_board_iter();
+
+    assert_eq!(
+      stepwise_iter.next(),
+      Some(XWord::build_grid(
+        "_____
+         _____
+         _____",
+      )?)
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "__c__
+         __d__
+         __e__",
+      )?))
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(any![
+        eq(&XWord::build_grid(
+          "a_c__
+           b_d__
+           c_e__",
+        )?),
+        eq(&XWord::build_grid(
+          "_bc__
+           _cd__
+           _de__",
+        )?),
+        eq(&XWord::build_grid(
+          "__cd_
+           __de_
+           __ea_",
+        )?),
+        eq(&XWord::build_grid(
+          "__c_e
+           __d_a
+           __e_b",
+        )?),
+      ])
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(any![
+        eq(&XWord::build_grid(
+          "abc__
+           bcd__
+           cde__",
+        )?),
+        eq(&XWord::build_grid(
+          "a_cd_
+           b_de_
+           c_ea_",
+        )?),
+        eq(&XWord::build_grid(
+          "a_c_e
+           b_d_a
+           c_e_b",
+        )?),
+        eq(&XWord::build_grid(
+          "_bcd_
+           _cde_
+           _dea_",
+        )?),
+        eq(&XWord::build_grid(
+          "_bc_e
+           _cd_a
+           _de_b",
+        )?),
+        eq(&XWord::build_grid(
+          "__cde
+           __dea
+           __eab",
+        )?),
+      ])
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(any![
+        eq(&XWord::build_grid(
+          "abcd_
+           bcde_
+           cdea_",
+        )?),
+        eq(&XWord::build_grid(
+          "abc_e
+           bcd_a
+           cde_b",
+        )?),
+        eq(&XWord::build_grid(
+          "a_cde
+           b_dea
+           c_eab",
+        )?),
+        eq(&XWord::build_grid(
+          "_bcde
+           _cdea
+           _deab",
+        )?),
+      ])
+    );
+    assert_that!(
+      stepwise_iter.next(),
+      some(eq(&XWord::build_grid(
+        "abcde
+           bcdea
+           cdeab",
+      )?))
+    );
+    assert_that!(stepwise_iter.next(), none());
+
+    Ok(())
+  }
 }

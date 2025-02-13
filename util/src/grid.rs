@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use bitcode::{Decode, Encode};
 
@@ -31,7 +31,7 @@ pub trait MutGridlike<T>: Gridlike<T> {
   fn transpose_mut(&mut self) -> impl MutGridlike<T>;
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
+#[derive(Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Grid<T> {
   grid: Vec<T>,
   width: u32,
@@ -51,11 +51,7 @@ impl<T> Grid<T> {
       );
     }
 
-    Ok(Self {
-      grid,
-      width,
-      height,
-    })
+    Ok(Self { grid, width, height })
   }
 
   fn idx(&self, pos: Pos) -> usize {
@@ -151,6 +147,15 @@ impl<T> MutGridlike<T> for Grid<T> {
 
   fn transpose_mut(&mut self) -> impl MutGridlike<T> {
     MutTransposeGrid { grid: self }
+  }
+}
+
+impl<T: Debug> Debug for Grid<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    (0..self.height).try_fold((), |_, y| {
+      self.iter_row(y).try_fold((), |_, t| write!(f, "{t:?} "))?;
+      writeln!(f)
+    })
   }
 }
 
