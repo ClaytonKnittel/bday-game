@@ -224,34 +224,51 @@ impl Entity for InteractiveGrid {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
     self.tile_colorer.borrow_mut().refresh(&self.grid);
 
-    Box::new((0..self.grid.height() as i32).flat_map(move |y| {
-      let clue_num_map = self.clue_num_map();
-      (0..self.grid.width() as i32).map(move |x| {
-        let pos = Pos { x, y };
-        let mut draw = match self.grid.get(pos) {
-          Some(XWordTile::Wall) => Draw::new('*'),
-          Some(&XWordTile::Letter(letter)) => Draw::new(letter),
-          Some(XWordTile::Empty) => {
-            let tile = if let Some(clue_num) = clue_num_map.get(&pos) {
-              char::from_u32(((clue_num % 10) as u8 + b'0') as u32).unwrap_or('?')
-            } else {
-              '_'
+    Box::new(
+      (0..self.grid.height() as i32)
+        .flat_map(move |y| {
+          let clue_num_map = self.clue_num_map();
+          (0..self.grid.width() as i32).map(move |x| {
+            let pos = Pos { x, y };
+            let mut draw = match self.grid.get(pos) {
+              Some(XWordTile::Wall) => Draw::new('*'),
+              Some(&XWordTile::Letter(letter)) => Draw::new(letter),
+              Some(XWordTile::Empty) => {
+                let tile = if let Some(clue_num) = clue_num_map.get(&pos) {
+                  char::from_u32(((clue_num % 10) as u8 + b'0') as u32).unwrap_or('?')
+                } else {
+                  '_'
+                };
+                Draw::new(tile).with_fg(self.tile_colorer().tile_color(self, pos))
+              }
+              _ => unreachable!(),
             };
-            Draw::new(tile).with_fg(self.tile_colorer().tile_color(self, pos))
-          }
-          _ => unreachable!(),
-        };
 
-        if pos == self.cursor_pos {
-          draw = draw
-            .with_italic()
-            .with_bold()
-            .with_fg(color::AnsiValue::grayscale(23));
-        }
+            if pos == self.cursor_pos {
+              draw = draw
+                .with_italic()
+                .with_bold()
+                .with_fg(color::AnsiValue::grayscale(23));
+            }
 
-        (draw, Pos { x: 2 * x, y })
-      })
-    }))
+            (draw, Pos { x: 2 * x, y })
+          })
+        })
+        .chain(
+          self
+            .cursor_pos
+            .to_string()
+            .chars()
+            .enumerate()
+            .map(move |(idx, c)| {
+              (
+                Draw::new(c).with_fg(color::AnsiValue::grayscale(23)),
+                Pos { x: 102 + idx as i32, y: 30 },
+              )
+            })
+            .collect::<Vec<_>>(),
+        ),
+    )
   }
 
   fn as_any(&self) -> &dyn std::any::Any {
