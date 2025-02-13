@@ -5,6 +5,7 @@ use std::{
   fmt::Display,
   iter::{self, once},
   rc::Rc,
+  thread,
 };
 
 use itertools::Itertools;
@@ -838,9 +839,37 @@ where
       .collect()
   }
 
-  pub fn solve_parallel(&self) -> TermgameResult<Grid<XWordTile>> {
-    // Should use tokio primitives
-    todo!();
+  pub fn solve_parallel(&self) -> TermgameResult<Option<Grid<XWordTile>>> {
+    if !self
+      .all_prefilled_words()
+      .all(|word| self.bank.borrow().has(&word))
+    {
+      return Ok(None);
+    }
+
+    let join_handles = self
+      .build_dlx_solvers()
+      .into_values()
+      .map(|mut dlx| thread::spawn(move || dlx.find_solutions().with_names().next()))
+      .collect_vec();
+
+    join_handles
+      .into_iter()
+      .map(|join_handle| join_handle.join())
+      .collect::<Result<Vec<_>, _>>()
+      .map_err(|_| TermgameError::Internal("Failed to join thread".to_owned()))?
+      .into_iter()
+      .try_fold(Some(self.board().clone()), |board, result| {
+        if let Some(board) = board {
+          if let Some(solution) = result {
+            // println!("Solution!");
+            let grid = self.build_grid_from_assignments(board, solution)?;
+            // println!("{}", grid);
+            return Ok(Some(grid));
+          }
+        }
+        Ok(None)
+      })
   }
 
   /// TODO: return DlxStepwiseIterResult so WithRequired stepwise iter can halt
@@ -1112,7 +1141,7 @@ impl XWordTraits for XWordWithRequired {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
           .map(|board| XWordImpl::<Rc<WordBank>>::with_bank(board, self.bank.clone()))
-          .and_then(|xword| xword.solve())
+          .and_then(|xword| xword.solve_parallel())
           .transpose()
       })
       .transpose()
