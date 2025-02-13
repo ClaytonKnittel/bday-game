@@ -1116,12 +1116,7 @@ mod tests {
     pos::Pos,
   };
 
-  use crate::xword::{
-    LetterFrequencyMap, XWordClueAssignment, XWordClueNumber, XWordCluePosition, XWordConstraint,
-    XWordInternal, XWordTile, XWordTraits, XWordWithRequired, NUM_TILE_BITS, NUM_TILE_SELECTIONS,
-  };
-
-  use super::{XWord, XWordTileConstraint};
+  use crate::xword::*;
 
   #[gtest]
   fn test_empty() {
@@ -2322,6 +2317,31 @@ mod tests {
   }
 
   #[gtest]
+  fn test_excludes_existing_with_solution() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab", "cb", "b", "c", "ax", "yx", "y"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    assert_that!(
+      xword.solve_expected(),
+      ok(eq(&XWord::build_grid(
+        "Xy
+         ax
+         bX",
+      )?))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_required_excludes_existing() -> TermgameResult {
     let xword = XWordWithRequired::from_grid(
       XWord::build_grid(
@@ -2338,6 +2358,32 @@ mod tests {
     expect_that!(
       xword.solve_expected(),
       err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
+  fn test_required_excludes_existing_with_solution() -> TermgameResult {
+    let xword = XWordWithRequired::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab", "ax"].into_iter().map(|str| str.to_owned()),
+      ["ab", "cb", "b", "c", "ax", "yx", "y"]
+        .into_iter()
+        .map(|str| str.to_owned()),
+    )?;
+
+    assert_that!(
+      xword.solve_expected(),
+      ok(eq(&XWord::build_grid(
+        "Xy
+         ax
+         bX",
+      )?))
     );
 
     Ok(())

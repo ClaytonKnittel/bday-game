@@ -19,7 +19,7 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWordTile, XWordTraits, XWordWithRequired};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -46,7 +46,7 @@ fn read_dict() -> TermgameResult<XWordDict> {
 fn build_dict() -> TermgameResult<HashSet<String>> {
   Ok(
     read_dict()?
-      .top_n_words(10_000)
+      .top_n_words(180_000)
       .into_iter()
       .map(|str| str.to_owned())
       .collect(),
