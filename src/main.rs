@@ -19,12 +19,10 @@ use serde::Serialize;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::{
-  dlx::{DlxIteratorWithNames, StepwiseDlxIterResult},
-  xword::{XWord, XWordTile, XWordTraits, XWordWithRequired},
-};
+use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
+const NEW_GRID_PATH: &str = "./new_grid.bin";
 
 #[derive(ValueEnum, Clone, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -165,10 +163,10 @@ fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
     Ok(())
   })?;
 
-  if false {
+  {
     let grid: &InteractiveGrid = ev.scene().entity(grid_uid)?;
     let grid_serialized = bitcode::encode(grid.grid());
-    let mut file = File::create(GRID_PATH)?;
+    let mut file = File::create(NEW_GRID_PATH)?;
     file.write_all(&grid_serialized)?;
   }
 

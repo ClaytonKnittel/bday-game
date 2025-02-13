@@ -210,6 +210,14 @@ impl InteractiveGrid {
       .map(|(idx, pos)| (pos, (idx + 1) as u32))
       .collect()
   }
+
+  fn cursor_move_delta(&self) -> Diff {
+    if self.to_right {
+      Diff { x: 1, y: 0 }
+    } else {
+      Diff { x: 0, y: 1 }
+    }
+  }
 }
 
 impl Entity for InteractiveGrid {
@@ -281,21 +289,23 @@ impl Entity for InteractiveGrid {
           if let Some(tile) = self.grid.get_mut(self.cursor_pos) {
             if !matches!(tile, XWordTile::Wall) {
               *tile = XWordTile::Letter(letter);
-              if self.to_right {
-                self.cursor_pos.x += 1;
-              } else {
-                self.cursor_pos.y += 1;
-              }
+              self.cursor_pos += self.cursor_move_delta();
             }
           }
         } else if letter == ' ' {
-          if self.to_right {
-            self.cursor_pos.x += 1;
-          } else {
-            self.cursor_pos.y += 1;
-          }
+          self.cursor_pos += self.cursor_move_delta();
         } else if letter == '\t' {
           self.to_right = !self.to_right;
+        }
+      }
+      Key::Backspace => {
+        if let Some(tile) = self.grid.get_mut(self.cursor_pos) {
+          if !matches!(tile, XWordTile::Wall) {
+            if matches!(tile, XWordTile::Letter(_)) {
+              *tile = XWordTile::Empty;
+            }
+            self.cursor_pos -= self.cursor_move_delta();
+          }
         }
       }
       Key::Left => self.cursor_pos.x -= 1,
