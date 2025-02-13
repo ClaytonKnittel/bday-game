@@ -2303,6 +2303,25 @@ mod tests {
   }
 
   #[gtest]
+  fn test_excludes_existing() -> TermgameResult {
+    let xword = XWord::from_grid(
+      XWord::build_grid(
+        "X_
+         a_
+         bX",
+      )?,
+      ["ab", "cb", "b", "c"].into_iter().map(|str| str.to_owned()),
+    )?;
+
+    expect_that!(
+      xword.solve_expected(),
+      err(displays_as(contains_substring("No solution found")))
+    );
+
+    Ok(())
+  }
+
+  #[gtest]
   fn test_required_excludes_existing() -> TermgameResult {
     let xword = XWordWithRequired::from_grid(
       XWord::build_grid(
