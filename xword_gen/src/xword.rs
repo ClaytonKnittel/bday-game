@@ -936,15 +936,8 @@ impl XWordWithRequired {
   ) -> TermgameResult<Self> {
     let required_words = WordBank::from_words(required_words);
 
-    let required_words_set: HashSet<_> = required_words
-      .all_words()
-      .map(|word| word.to_owned())
-      .collect();
-    let bank = Rc::new(WordBank::from_words(
-      bank
-        .into_iter()
-        .filter(|word| !required_words_set.contains(word)),
-    ));
+    let bank = Rc::new(WordBank::from_words(bank));
+    debug_assert!(required_words.all_words().all(|word| bank.has(word)));
 
     Ok(Self { board, bank, required_words })
   }
@@ -1671,7 +1664,7 @@ mod tests {
          X_",
       )?,
       ["ab"].into_iter().map(|str| str.to_owned()),
-      ["c"].into_iter().map(|str| str.to_owned()),
+      ["ab", "c"].into_iter().map(|str| str.to_owned()),
     )?;
 
     let ab_id = xword.testonly_word_id("ab").expect("word ab not found");
@@ -1920,7 +1913,7 @@ mod tests {
          X_",
       )?,
       ["ab"].into_iter().map(|str| str.to_owned()),
-      ["bc"].into_iter().map(|str| str.to_owned()),
+      ["bc", "ab"].into_iter().map(|str| str.to_owned()),
     )?;
 
     let params = xword.build_params();
@@ -2061,7 +2054,9 @@ mod tests {
          ___",
       )?,
       ["bob", "cat"].into_iter().map(|str| str.to_owned()),
-      ["cb", "ao", "tb"].into_iter().map(|str| str.to_owned()),
+      ["cb", "ao", "tb", "bob", "cat"]
+        .into_iter()
+        .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve_expected()?;
@@ -2088,7 +2083,7 @@ mod tests {
          ___",
       )?,
       ["bob", "cat"].into_iter().map(|str| str.to_owned()),
-      [],
+      ["bob", "cat"].into_iter().map(|str| str.to_owned()),
     )?;
 
     expect_that!(
@@ -2171,9 +2166,11 @@ mod tests {
          __aX_
          __tX_",
       )?,
-      ["hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y"]
-        .into_iter()
-        .map(|str| str.to_owned()),
+      [
+        "hat", "aba", "ba", "hah", "h", "cog", "o", "guy", "u", "y", "cat",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve_expected()?;
@@ -2202,9 +2199,11 @@ mod tests {
          __tX",
       )?,
       ["ttt"].into_iter().map(|str| str.to_owned()),
-      ["hat", "aba", "tat", "ba", "bt", "h", "co", "o"]
-        .into_iter()
-        .map(|str| str.to_owned()),
+      [
+        "hat", "aba", "tat", "ba", "bt", "h", "co", "o", "cat", "ttt",
+      ]
+      .into_iter()
+      .map(|str| str.to_owned()),
     )?;
 
     let solution = xword.solve_expected()?;
@@ -2233,7 +2232,7 @@ mod tests {
          __tXX",
       )?,
       ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
-      [],
+      ["dog", "got", "cof"].into_iter().map(|str| str.to_owned()),
     )?;
 
     let dog_id = xword.testonly_word_id("dog").expect("word dog not found");
