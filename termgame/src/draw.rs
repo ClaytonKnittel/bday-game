@@ -10,6 +10,7 @@ pub struct Draw {
   z_idx: i32,
   italic: bool,
   bold: bool,
+  underlined: bool,
 }
 
 impl Draw {
@@ -21,6 +22,7 @@ impl Draw {
       z_idx: 0,
       italic: false,
       bold: false,
+      underlined: false,
     }
   }
 
@@ -51,6 +53,10 @@ impl Draw {
   pub fn with_bold(self) -> Self {
     Self { bold: true, ..self }
   }
+
+  pub fn with_underline(self) -> Self {
+    Self { underlined: true, ..self }
+  }
 }
 
 impl Display for Draw {
@@ -75,9 +81,14 @@ impl Display for Draw {
     } else {
       "".to_owned()
     };
+    let underline_str = if self.underlined {
+      style::Underline.to_string()
+    } else {
+      "".to_owned()
+    };
     write!(
       f,
-      "{}{italic_str}{bold_str}{fg_str}{bg_str}{}",
+      "{}{italic_str}{bold_str}{underline_str}{fg_str}{bg_str}{}",
       style::Reset,
       self.item
     )
@@ -90,7 +101,13 @@ impl PartialEq for Draw {
       && self.z_idx == other.z_idx
       && self.italic == other.italic
       && self.bold == other.bold
+      && self.underlined == other.underlined
       && match (self.fg_color, other.fg_color) {
+        (Some(color::AnsiValue(c1)), Some(color::AnsiValue(c2))) => c1 == c2,
+        (None, None) => true,
+        _ => false,
+      }
+      && match (self.bg_color, other.bg_color) {
         (Some(color::AnsiValue(c1)), Some(color::AnsiValue(c2))) => c1 == c2,
         (None, None) => true,
         _ => false,
