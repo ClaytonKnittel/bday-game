@@ -1,11 +1,11 @@
 use std::process::ExitCode;
 
-use common::{config::PORT, msg::ClientMessage};
-use tokio::{
-  io::AsyncReadExt,
-  net::{TcpListener, TcpStream},
+use common::{
+  config::PORT,
+  msg::{read_message_from_wire, ClientMessage, DecodeMessageResult},
 };
-use util::{bitcode, error::TermgameResult};
+use tokio::net::{TcpListener, TcpStream};
+use util::error::TermgameResult;
 
 async fn respond_to_message(message: ClientMessage) -> TermgameResult {
   println!("Message: {message:?}");
@@ -13,19 +13,9 @@ async fn respond_to_message(message: ClientMessage) -> TermgameResult {
 }
 
 async fn handle_connection(mut stream: TcpStream) -> TermgameResult {
-  loop {
-    let len = stream.read_u64().await?;
-
-    let mut buf = vec![0u8; len as usize];
-    stream.read_exact(buf.as_mut_slice()).await?;
-    if buf.is_empty() {
-      break;
-    }
-
-    let message = bitcode::decode(buf.as_slice())?;
+  while let DecodeMessageResult::Message(message) = read_message_from_wire(&mut stream).await? {
     respond_to_message(message).await?;
   }
-
   Ok(())
 }
 

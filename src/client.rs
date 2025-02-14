@@ -1,29 +1,66 @@
-use common::{config::PORT, msg::ClientMessage};
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Mutex};
-use util::{bitcode, error::TermgameResult};
+use std::sync::Arc;
+
+use common::{
+  config::PORT,
+  msg::{write_message_to_wire, ClientMessage, ServerMessage},
+};
+use tokio::{
+  io::AsyncWriteExt,
+  net::TcpStream,
+  sync::{
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    Mutex,
+  },
+  task::JoinHandle,
+};
+use util::{
+  bitcode::{self, Decode},
+  error::TermgameResult,
+};
 
 pub struct Client {
-  stream: Mutex<TcpStream>,
+  stream: Arc<Mutex<TcpStream>>,
+  rx: UnboundedReceiver<ServerMessage>,
 }
 
 impl Client {
+  async fn listen_for_messages<T>(
+    stream: Arc<Mutex<TcpStream>>,
+    tx: UnboundedSender<T>,
+  ) -> TermgameResult
+  where
+    T: for<'a> Decode<'a> + 'static,
+  {
+    Ok(())
+  }
+
+  fn start_listening_thread<T>(
+    stream: Arc<Mutex<TcpStream>>,
+    tx: UnboundedSender<T>,
+  ) -> TermgameResult<JoinHandle<TermgameResult>>
+  where
+    T: for<'a> Decode<'a> + Send + 'static,
+  {
+    Ok(tokio::spawn(async move {
+      Self::listen_for_messages(stream, tx).await
+    }))
+  }
+
   pub async fn new() -> TermgameResult<Self> {
-    Ok(Self {
-      stream: Mutex::new(TcpStream::connect(format!("127.0.0.1:{PORT}")).await?),
-    })
+    let (tx, rx) = mpsc::unbounded_channel();
+
+    let stream = Arc::new(Mutex::new(
+      TcpStream::connect(format!("127.0.0.1:{PORT}")).await?,
+    ));
+
+    Self::start_listening_thread(stream.clone(), tx)?;
+    Ok(Self { stream, rx })
   }
 
   pub async fn write_test(&mut self) -> TermgameResult {
     let msg = ClientMessage::TestMessage("Hello guyz!".to_owned());
-    let encoded = bitcode::encode(&msg);
-    let len = encoded.len();
-
-    {
-      let mut stream = self.stream.lock().await;
-      stream.write_u64(len as u64).await?;
-      stream.write_all(&encoded).await?;
-    }
-
+    let mut stream = self.stream.lock().await;
+    write_message_to_wire(&mut stream, msg).await?;
     Ok(())
   }
 }

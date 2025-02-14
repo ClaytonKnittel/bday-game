@@ -23,4 +23,4 @@ impl Display for TermgameError {
 
 impl Error for TermgameError {}
 
-pub type TermgameResult<T = ()> = Result<T, Box<dyn Error>>;
+pub type TermgameResult<T = ()> = Result<T, Box<dyn Error + Send + Sync>>;
