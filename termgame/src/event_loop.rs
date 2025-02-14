@@ -126,7 +126,7 @@ impl<'a> EventLoop<'a> {
     unreachable!();
   }
 
-  pub fn async_event_loop(&'a mut self) -> AsyncEventLoopIter {
+  pub fn async_event_loop(&mut self) -> AsyncEventLoopIter {
     AsyncEventLoopIter {
       stdin_events: async_stdin().events(),
       t: 0,

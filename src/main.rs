@@ -237,23 +237,21 @@ async fn play_puzzle() -> TermgameResult {
 
   let mut ev_iter = ev.async_event_loop();
   while ev_iter.poll(&mut ev).await? {
-    let window = ev.window();
-    let width = window.width() as i32;
-    let height = window.height() as i32;
-
     let scene = ev.scene();
     let xword: &Crossword = scene.entity(xword_uid)?;
+    let (screen_width, screen_height) = (xword.screen_width(), xword.screen_height());
     let pos = xword.player_screen_pos();
 
     let window = ev.window();
+    let (width, height) = (window.width() as i32, window.height() as i32);
     let camera_pos = window.camera_pos_mut();
 
     camera_pos.x = (pos.x - width / 2)
       .max(0)
-      .min((xword.screen_width()).saturating_sub(width as u32) as i32);
+      .min(screen_width.saturating_sub(width as u32) as i32);
     camera_pos.y = (pos.y - height / 2)
       .max(0)
-      .min((xword.screen_height()).saturating_sub(height as u32) as i32);
+      .min(screen_height.saturating_sub(height as u32) as i32);
   }
 
   Ok(())
