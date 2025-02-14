@@ -120,10 +120,8 @@ fn find_and_save_solution(grid: Grid<XWordTile>) -> TermgameResult {
   //   "clayton",
   // ];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 25] = [
-    "clayton", "eugenia", "andrew", "jackson", "matt", "austen", "paul", "kevin",
-    "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-    "cooper", "jessica", "kathy", "christina", "bchan", "kmoney", "sruthi", "laney",
+  const REQUIRED: [&str; 5] = [
+    "pizza", "ono", "jazz", "lamp", "windmill",
   ];
 
   for &required_word in REQUIRED.iter() {

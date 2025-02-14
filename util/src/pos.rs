@@ -69,6 +69,11 @@ pub struct Diff {
   pub y: i32,
 }
 
+impl Diff {
+  pub const DX: Diff = Diff { x: 1, y: 0 };
+  pub const DY: Diff = Diff { x: 0, y: 1 };
+}
+
 impl Add for Diff {
   type Output = Self;
 

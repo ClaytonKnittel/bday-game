@@ -1,8 +1,9 @@
-use std::iter;
+use std::{collections::HashMap, iter};
 
-use termgame::{color, draw::Draw, entity::Entity};
+use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
-  grid::{Grid, Gridlike},
+  error::{TermgameError, TermgameResult},
+  grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
 };
 use xword_gen::xword::XWordTile;
@@ -18,9 +19,16 @@ enum CrosswordView {
 pub struct Crossword {
   grid: Grid<XWordTile>,
   view: CrosswordView,
+  player_pos: Pos,
+  to_right: bool,
+  clue_map: HashMap<(Pos, bool), Pos>,
 }
 
 impl Crossword {
+  fn char_display(c: char) -> char {
+    c.to_ascii_uppercase()
+  }
+
   fn xscale(&self) -> i32 {
     match self.view {
       CrosswordView::Expanded => 4,
@@ -35,8 +43,36 @@ impl Crossword {
     }
   }
 
+  fn build_clue_map(grid: &Grid<XWordTile>) -> HashMap<(Pos, bool), Pos> {
+    grid
+      .positions()
+      .filter(|&pos| {
+        grid
+          .get(pos)
+          .is_some_and(|tile| !matches!(tile, XWordTile::Wall))
+      })
+      .fold(HashMap::new(), |mut map, pos| {
+        map.insert(
+          (pos, false),
+          map.get(&(pos - Diff::DY, false)).cloned().unwrap_or(pos),
+        );
+        map.insert(
+          (pos, true),
+          map.get(&(pos - Diff::DX, true)).cloned().unwrap_or(pos),
+        );
+        map
+      })
+  }
+
   pub fn from_grid(grid: Grid<XWordTile>) -> Self {
-    Self { grid, view: CrosswordView::Compressed }
+    let clue_map = Self::build_clue_map(&grid);
+    Self {
+      grid,
+      view: CrosswordView::Expanded,
+      player_pos: Pos::zero(),
+      to_right: true,
+      clue_map,
+    }
   }
 
   pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
@@ -51,12 +87,80 @@ impl Crossword {
     self.grid.height()
   }
 
+  pub fn player_screen_pos(&self) -> Pos {
+    Pos {
+      x: self.player_pos.x * self.xscale() + self.xscale() / 2,
+      y: self.player_pos.y * self.yscale() + self.yscale() / 2,
+    }
+  }
+
   pub fn screen_width(&self) -> u32 {
     self.width() * self.xscale() as u32 + 1
   }
 
   pub fn screen_height(&self) -> u32 {
     self.height() * self.yscale() as u32 + 1
+  }
+
+  pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {
+    self
+      .grid
+      .get(pos)
+      .ok_or_else(|| TermgameError::Internal(format!("Pos is out of bounds: {pos}")).into())
+  }
+
+  pub fn tile_mut(&mut self, pos: Pos) -> TermgameResult<&mut XWordTile> {
+    self.grid.get_mut(pos).ok_or_else(|| {
+      TermgameError::Internal(format!("Mutable access pos is out of bounds: {pos}")).into()
+    })
+  }
+
+  fn should_highlight(&self, pos: Pos) -> bool {
+    pos != self.player_pos
+      && self
+        .clue_map
+        .get(&(pos, self.to_right))
+        .is_some_and(|row_id| {
+          self
+            .clue_map
+            .get(&(self.player_pos, self.to_right))
+            .is_some_and(|player_row_id| row_id == player_row_id)
+        })
+  }
+
+  fn can_move_to(&self, pos: Pos) -> bool {
+    (0..self.grid.width() as i32).contains(&pos.x)
+      && (0..self.grid.height() as i32).contains(&pos.y)
+      && !self.is_wall(pos)
+  }
+
+  fn next_free_tile_impl(&self, pos: Pos, delta: Diff) -> Pos {
+    if !self.grid.in_bounds(pos + delta) {
+      return pos;
+    }
+
+    let pos = pos + delta;
+    iter::successors(Some(pos), |&pos| {
+      let pos = pos + delta;
+      (!self.is_wall(pos)).then_some(pos)
+    })
+    .find(|&pos| self.is_empty(pos))
+    .unwrap_or(pos)
+  }
+
+  fn find_next_free_tile(&self, pos: Pos) -> Pos {
+    self.next_free_tile_impl(pos, if self.to_right { Diff::DX } else { Diff::DY })
+  }
+
+  fn find_prev_free_tile(&self, pos: Pos) -> Pos {
+    self.next_free_tile_impl(pos, if self.to_right { -Diff::DX } else { -Diff::DY })
+  }
+
+  fn is_empty(&self, pos: Pos) -> bool {
+    self
+      .grid
+      .get(pos)
+      .is_none_or(|tile| matches!(tile, XWordTile::Empty))
   }
 
   fn is_wall(&self, pos: Pos) -> bool {
@@ -177,39 +281,70 @@ impl Crossword {
         .flat_map(move |y| {
           (0..self.width() as i32)
             .flat_map(move |x| {
-              let pos = Pos {
+              let pos = Pos { x, y };
+              let screen_pos = Pos {
                 x: x * self.xscale(),
                 y: y * self.yscale(),
               };
 
               (0..self.yscale()).flat_map(move |dy| {
                 (0..self.xscale()).flat_map(move |dx| {
-                  let pos = pos + Diff { x: dx, y: dy };
+                  let screen_pos = screen_pos + Diff { x: dx, y: dy };
                   let grid_pos = Pos { x, y };
                   let letter = self.grid.get(grid_pos)?.clone();
 
-                  let tile = if dx == 0 && dy == 0 {
-                    self.cross_at(grid_pos)
-                  } else if dx == 0 {
-                    self.v_bar_at(grid_pos)
-                  } else if dy == 0 {
-                    self.h_bar_at(grid_pos)
-                  } else if dx == self.xscale() / 2 && dy == self.yscale() / 2 {
-                    match letter {
-                      XWordTile::Letter(c) => c,
-                      XWordTile::Empty => ' ',
-                      XWordTile::Wall => '\u{2573}',
-                    }
-                  } else {
-                    ' '
-                  };
+                  let mut fg = col;
+                  let mut bg = None;
 
-                  let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
-                  if matches!(letter, XWordTile::Wall) && dx != 0 && dy != 0 {
-                    draw = draw.with_bold().with_fg(color::AnsiValue::grayscale(22));
+                  if pos == self.player_pos && dx != 0 && dy != 0 {
+                    fg = color::AnsiValue::grayscale(5);
+                    bg = Some(color::AnsiValue::rgb(2, 4, 3));
                   }
 
-                  Some((draw, pos))
+                  let center = dx == self.xscale() / 2 && dy == self.yscale() / 2;
+
+                  let draw = if dx == 0 && dy == 0 {
+                    Draw::new(self.cross_at(grid_pos))
+                  } else if dx == 0 {
+                    Draw::new(self.v_bar_at(grid_pos))
+                  } else if dy == 0 {
+                    Draw::new(self.h_bar_at(grid_pos))
+                  } else {
+                    let mut draw = match letter {
+                      XWordTile::Letter(c) => {
+                        if center {
+                          Draw::new(Self::char_display(c))
+                        } else {
+                          Draw::new(' ')
+                        }
+                      }
+                      XWordTile::Empty => Draw::new(' '),
+                      XWordTile::Wall => {
+                        fg = color::AnsiValue::grayscale(16);
+                        Draw::new(if dx == 1 {
+                          // ▐
+                          '\u{2590}'
+                        } else if dx == 2 {
+                          // █
+                          '\u{2588}'
+                        } else {
+                          // ▋
+                          '\u{258B}'
+                        })
+                      }
+                    };
+
+                    if center && self.should_highlight(grid_pos) {
+                      draw = draw.with_underline();
+                    }
+                    draw
+                  };
+
+                  let mut draw = draw.with_fg(fg).with_z(Z_IDX);
+                  if let Some(bg) = bg {
+                    draw = draw.with_bg(bg);
+                  }
+                  Some((draw, screen_pos))
                 })
               })
             })
@@ -272,17 +407,22 @@ impl Crossword {
 
     Box::new((0..self.height() as i32).flat_map(move |y| {
       (0..self.width() as i32).map(move |x| {
-        let pos = Pos { x: x * 2, y };
+        let pos = Pos { x, y };
+        let screen_pos = Pos { x: x * 2, y };
 
-        let tile = match self.grid.get(Pos { x, y }) {
-          Some(&XWordTile::Letter(c)) => c,
+        let tile = match self.grid.get(pos) {
+          Some(&XWordTile::Letter(c)) => Self::char_display(c),
           Some(XWordTile::Wall) => 'X',
           Some(XWordTile::Empty) => '_',
           None => unreachable!(),
         };
-        let draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
+        let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
 
-        (draw, pos)
+        if pos == self.player_pos {
+          draw = draw.with_fg(color::AnsiValue::rgb(5, 0, 3));
+        }
+
+        (draw, screen_pos)
       })
     }))
   }
@@ -303,12 +443,50 @@ impl Entity for Crossword {
     self
   }
 
-  fn keypress(&mut self, key: termgame::Key) -> util::error::TermgameResult {
-    if let termgame::Key::Char('m') = key {
-      self.view = match self.view {
-        CrosswordView::Expanded => CrosswordView::Compressed,
-        CrosswordView::Compressed => CrosswordView::Expanded,
-      };
+  fn keypress(&mut self, key: Key) -> util::error::TermgameResult {
+    let mut player_pos = self.player_pos;
+
+    match key {
+      Key::Char(letter @ 'a'..='z') => {
+        let tile = self.tile_mut(player_pos)?;
+        match tile {
+          XWordTile::Empty => *tile = XWordTile::Letter(letter),
+          XWordTile::Letter(_) => *tile = XWordTile::Letter(letter),
+          XWordTile::Wall => {}
+        }
+
+        player_pos = self.find_next_free_tile(player_pos);
+      }
+      Key::Char('\t') => {
+        self.to_right = !self.to_right;
+      }
+      Key::Backspace => {
+        let tile = self.tile_mut(player_pos)?;
+        match tile {
+          XWordTile::Letter(_) => *tile = XWordTile::Empty,
+          XWordTile::Empty => {
+            player_pos = self.find_prev_free_tile(player_pos);
+            let tile = self.tile_mut(player_pos)?;
+            *tile = XWordTile::Empty;
+          }
+          XWordTile::Wall => {}
+        }
+      }
+      Key::Char('/') => {
+        self.view = match self.view {
+          CrosswordView::Expanded => CrosswordView::Compressed,
+          CrosswordView::Compressed => CrosswordView::Expanded,
+        };
+      }
+      Key::Left => player_pos.x -= 1,
+      Key::Right => player_pos.x += 1,
+      Key::Up => player_pos.y -= 1,
+      Key::Down => player_pos.y += 1,
+      _ => {}
+    }
+
+    if self.can_move_to(player_pos) {
+      self.player_pos = player_pos;
     }
 
     Ok(())

@@ -165,8 +165,8 @@ fn interactive_grid(mode: InteractiveGridMode) -> TermgameResult {
 
 fn show_dlx_iters() -> TermgameResult {
   // let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let grid = XWord::build_grid(partial_sunday())?;
-  // let grid = mega_grid()?;
+  // let grid = XWord::build_grid(sunday())?;
+  let grid = mega_grid()?;
 
   // const REQUIRED: [&str; 0] = [];
   // #[rustfmt::skip]
@@ -177,10 +177,8 @@ fn show_dlx_iters() -> TermgameResult {
   //   "christina",
   // ];
   #[rustfmt::skip]
-  const REQUIRED: [&str; 21] = [
-    "clayton", "eugenia", "andrew", "jackson", "matt", "austen", "paul", "kevin",
-    "paige", "kyle", "nina", "anne", "ethan", "jonathan", "rose", "alex", "cindy",
-    "cooper", "jessica", "kathy", "christina", // "bchan", "kmoney", "sruthi", "laney",
+  const REQUIRED: [&str; 5] = [
+    "pizza", "ono", "jazz", "lamp", "windmill",
   ];
 
   let mut dict = build_dict()?;
@@ -236,22 +234,19 @@ fn play_puzzle() -> TermgameResult {
   let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
 
-  let pc_uid = ev
-    .scene()
-    .add_entity(Box::new(Pc::new(Pos::zero(), AnsiValue::rgb(5, 0, 5))));
   ev.run_event_loop(|scene, window, _| {
     let width = window.width() as i32;
     let height = window.height() as i32;
 
-    let pc: &Pc = scene.entity(pc_uid)?;
     let xword: &Crossword = scene.entity(xword_uid)?;
+    let pos = xword.player_screen_pos();
 
     let camera_pos = window.camera_pos_mut();
 
-    camera_pos.x = (pc.pos().x - width / 2)
+    camera_pos.x = (pos.x - width / 2)
       .max(0)
       .min((xword.screen_width()).saturating_sub(width as u32) as i32);
-    camera_pos.y = (pc.pos().y - height / 2)
+    camera_pos.y = (pos.y - height / 2)
       .max(0)
       .min((xword.screen_height()).saturating_sub(height as u32) as i32);
 
