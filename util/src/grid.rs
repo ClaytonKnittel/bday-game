@@ -172,7 +172,7 @@ pub struct TransposeGrid<'a, T> {
   grid: &'a Grid<T>,
 }
 
-impl<'a, T> Gridlike<T> for TransposeGrid<'a, T> {
+impl<T> Gridlike<T> for TransposeGrid<'_, T> {
   fn width(&self) -> u32 {
     self.grid.height()
   }
@@ -214,7 +214,7 @@ pub struct MutTransposeGrid<'a, T> {
   grid: &'a mut Grid<T>,
 }
 
-impl<'a, T> Gridlike<T> for MutTransposeGrid<'a, T> {
+impl<T> Gridlike<T> for MutTransposeGrid<'_, T> {
   fn width(&self) -> u32 {
     self.grid.height()
   }
@@ -252,7 +252,7 @@ impl<'a, T> Gridlike<T> for MutTransposeGrid<'a, T> {
   }
 }
 
-impl<'a, T> MutGridlike<T> for MutTransposeGrid<'a, T> {
+impl<T> MutGridlike<T> for MutTransposeGrid<'_, T> {
   fn get_mut(&mut self, pos: Pos) -> Option<&mut T> {
     self.grid.get_mut(pos.transpose())
   }
