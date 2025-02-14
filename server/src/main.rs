@@ -13,17 +13,24 @@ async fn respond_to_message(message: ClientMessage) -> TermgameResult {
 }
 
 async fn handle_connection(mut stream: TcpStream) -> TermgameResult {
-  let mut buf = String::new();
-  stream.read_to_string(&mut buf).await?;
+  loop {
+    let len = stream.read_u64().await?;
 
-  let message = bitcode::decode(buf.as_bytes())?;
-  respond_to_message(message).await?;
+    let mut buf = vec![0u8; len as usize];
+    stream.read_exact(buf.as_mut_slice()).await?;
+    if buf.is_empty() {
+      break;
+    }
+
+    let message = bitcode::decode(buf.as_slice())?;
+    respond_to_message(message).await?;
+  }
 
   Ok(())
 }
 
 async fn run_server() -> TermgameResult {
-  let addr = format!("10.0.0.181:{PORT}");
+  let addr = format!("127.0.0.1:{PORT}");
 
   // let socket = TcpSocket::new_v4()?;
   // let stream = socket.connect(addr).await?;

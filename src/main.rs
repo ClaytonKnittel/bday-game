@@ -1,9 +1,12 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod args;
+mod client;
 mod crossword;
 mod interactive_grid;
 mod manager;
 mod pc;
+mod run_game;
 
 use std::{
   collections::HashSet,
@@ -12,32 +15,18 @@ use std::{
   process::ExitCode,
 };
 
-use clap::{Parser, ValueEnum};
+use args::{Args, RunMode};
+use clap::Parser;
 use crossword::Crossword;
 use interactive_grid::{InteractiveGrid, InteractiveGridMode};
 use pc::Pc;
-use serde::Serialize;
+use run_game::play_puzzle;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
 use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
-
-#[derive(ValueEnum, Clone, Debug, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum RunMode {
-  InteractiveGrid,
-  Progress,
-  Play,
-}
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-  #[arg(long, default_value = "progress")]
-  mode: RunMode,
-}
 
 fn read_dict() -> TermgameResult<XWordDict> {
   const DICT_PATH: &str = "./xword_gen/dict.bin";
@@ -226,33 +215,6 @@ fn show_dlx_iters() -> TermgameResult {
 
     Ok(())
   })?;
-
-  Ok(())
-}
-
-async fn play_puzzle() -> TermgameResult {
-  let mut ev = EventLoop::new()?;
-  let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
-
-  let mut ev_iter = ev.async_event_loop();
-  while ev_iter.poll(&mut ev).await? {
-    let scene = ev.scene();
-    let xword: &Crossword = scene.entity(xword_uid)?;
-    let (screen_width, screen_height) = (xword.screen_width(), xword.screen_height());
-    let pos = xword.player_screen_pos();
-
-    let window = ev.window();
-    let (width, height) = (window.width() as i32, window.height() as i32);
-    let camera_pos = window.camera_pos_mut();
-
-    camera_pos.x = (pos.x - width / 2)
-      .max(0)
-      .min(screen_width.saturating_sub(width as u32) as i32);
-    camera_pos.y = (pos.y - height / 2)
-      .max(0)
-      .min(screen_height.saturating_sub(height as u32) as i32);
-  }
 
   Ok(())
 }
