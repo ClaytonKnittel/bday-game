@@ -2,6 +2,7 @@
 
 mod crossword;
 mod interactive_grid;
+mod manager;
 mod pc;
 
 use std::{
@@ -229,18 +230,22 @@ fn show_dlx_iters() -> TermgameResult {
   Ok(())
 }
 
-fn play_puzzle() -> TermgameResult {
+async fn play_puzzle() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
 
-  ev.run_event_loop(|scene, window, _| {
+  let mut ev_iter = ev.async_event_loop();
+  while ev_iter.poll(&mut ev).await? {
+    let window = ev.window();
     let width = window.width() as i32;
     let height = window.height() as i32;
 
+    let scene = ev.scene();
     let xword: &Crossword = scene.entity(xword_uid)?;
     let pos = xword.player_screen_pos();
 
+    let window = ev.window();
     let camera_pos = window.camera_pos_mut();
 
     camera_pos.x = (pos.x - width / 2)
@@ -249,24 +254,23 @@ fn play_puzzle() -> TermgameResult {
     camera_pos.y = (pos.y - height / 2)
       .max(0)
       .min((xword.screen_height()).saturating_sub(height as u32) as i32);
-
-    Ok(())
-  })?;
+  }
 
   Ok(())
 }
 
-fn run() -> TermgameResult {
+async fn run() -> TermgameResult {
   let args = Args::parse();
   match args.mode {
     RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::DisjointRegions),
     RunMode::Progress => show_dlx_iters(),
-    RunMode::Play => play_puzzle(),
+    RunMode::Play => play_puzzle().await,
   }
 }
 
-fn main() -> ExitCode {
-  if let Err(err) = run() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
+  if let Err(err) = run().await {
     println!("Error: {err}");
     ExitCode::FAILURE
   } else {

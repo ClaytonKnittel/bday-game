@@ -1,6 +1,6 @@
 use std::{
+  error::Error,
   io::StdoutLock,
-  sync::Mutex,
   thread,
   time::{Duration, SystemTime},
 };
@@ -9,10 +9,12 @@ use termion::{
   async_stdin,
   cursor::HideCursor,
   event::{Event, Key, MouseEvent},
-  input::{MouseTerminal, TermRead},
+  input::{Events, MouseTerminal, TermRead},
   raw::{IntoRawMode, RawTerminal},
   screen::{AlternateScreen, IntoAlternateScreen},
+  AsyncReader,
 };
+use tokio::time;
 use util::{
   error::{TermgameError, TermgameResult},
   pos::Diff,
@@ -30,7 +32,7 @@ pub struct EventLoopOptions {
 pub struct EventLoop<'a> {
   window: Window<Term<'a>>,
   scene: Scene,
-  done: Mutex<bool>,
+  done: bool,
 }
 
 impl<'a> EventLoop<'a> {
@@ -44,15 +46,57 @@ impl<'a> EventLoop<'a> {
 
     let (width, height) = termion::terminal_size()?;
     let window = Window::new(stdout, width as u32, height as u32);
-    Ok(Self {
-      window,
-      scene: Scene::new(),
-      done: Mutex::new(false),
-    })
+    Ok(Self { window, scene: Scene::new(), done: false })
+  }
+
+  pub fn window(&mut self) -> &mut Window<Term<'a>> {
+    &mut self.window
   }
 
   pub fn scene(&mut self) -> &mut Scene {
     &mut self.scene
+  }
+
+  fn handle_events(
+    &mut self,
+    events: impl Iterator<Item = Result<Event, impl Error>>,
+  ) -> TermgameResult {
+    let camera_pos = self.window.camera_pos();
+    for evt in events {
+      match evt.map_err(|err| TermgameError::Internal(format!("Read event failed: {err}")))? {
+        Event::Key(Key::Esc) => {
+          self.done = true;
+        }
+        Event::Key(key) => self.scene.keypress(key)?,
+        Event::Mouse(me) => match me {
+          MouseEvent::Press(_, x, y) => {
+            self
+              .scene
+              .click(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
+          }
+          MouseEvent::Hold(x, y) => {
+            self
+              .scene
+              .drag(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
+          }
+          MouseEvent::Release(x, y) => {
+            self
+              .scene
+              .release(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
+          }
+        },
+        _ => {}
+      }
+    }
+
+    Ok(())
+  }
+
+  fn render(&mut self) -> TermgameResult {
+    self.window.reset();
+    self.scene.render(&mut self.window);
+    self.window.render()?;
+    Ok(())
   }
 
   pub fn run_event_loop<F>(&mut self, mut callback: F) -> TermgameResult
@@ -63,45 +107,16 @@ impl<'a> EventLoop<'a> {
 
     for t in 0usize.. {
       let start = SystemTime::now();
-      if *self
-        .done
-        .lock()
-        .map_err(|_| TermgameError::Internal("Failed to acquire mutex on `done`".to_owned()))?
-      {
+
+      self.handle_events(stdin.by_ref())?;
+      if self.done {
         return Ok(());
       }
 
-      let camera_pos = self.window.camera_pos();
-
-      for evt in stdin.by_ref() {
-        match evt? {
-          Event::Key(Key::Esc) => return Ok(()),
-          Event::Key(key) => self.scene.keypress(key)?,
-          Event::Mouse(me) => match me {
-            MouseEvent::Press(_, x, y) => {
-              self
-                .scene
-                .click(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
-            }
-            MouseEvent::Hold(x, y) => {
-              self
-                .scene
-                .drag(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
-            }
-            MouseEvent::Release(x, y) => {
-              self
-                .scene
-                .release(camera_pos + Diff { x: x as i32 - 1, y: y as i32 - 1 })?;
-            }
-          },
-          _ => {}
-        }
-      }
-      self.window.reset();
       self.scene.tick(t)?;
       callback(&mut self.scene, &mut self.window, t)?;
-      self.scene.render(&mut self.window);
-      self.window.render()?;
+      self.render()?;
+
       let end = SystemTime::now();
 
       let sleep_duration = Duration::from_millis(20).saturating_sub(end.duration_since(start)?);
@@ -109,5 +124,39 @@ impl<'a> EventLoop<'a> {
     }
 
     unreachable!();
+  }
+
+  pub fn async_event_loop(&'a mut self) -> AsyncEventLoopIter {
+    AsyncEventLoopIter {
+      stdin_events: async_stdin().events(),
+      t: 0,
+      start: SystemTime::now(),
+    }
+  }
+}
+
+pub struct AsyncEventLoopIter {
+  stdin_events: Events<AsyncReader>,
+  t: usize,
+  start: SystemTime,
+}
+
+impl AsyncEventLoopIter {
+  pub async fn poll(&mut self, event_loop: &mut EventLoop<'_>) -> TermgameResult<bool> {
+    event_loop.render()?;
+
+    let end = SystemTime::now();
+    let sleep_duration = Duration::from_millis(20).saturating_sub(end.duration_since(self.start)?);
+    time::sleep(sleep_duration).await;
+
+    self.start = SystemTime::now();
+    event_loop.handle_events(self.stdin_events.by_ref())?;
+    if event_loop.done {
+      return Ok(false);
+    }
+
+    event_loop.scene.tick(self.t)?;
+
+    Ok(true)
   }
 }

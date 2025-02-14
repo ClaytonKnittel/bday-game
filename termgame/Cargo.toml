@@ -7,3 +7,4 @@ edition = "2021"
 util = { path = "../util" }
 rand = "0.9.0"
 termion = "4.0.3"
+tokio = { version = "1.43.0", features = ["full"] }
