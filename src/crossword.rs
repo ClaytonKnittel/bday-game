@@ -1,9 +1,10 @@
-use std::{collections::HashMap, iter};
+use std::iter;
 
+use common::crossword::Crossword;
 use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
-  error::{TermgameError, TermgameResult},
-  grid::{Grid, Gridlike, MutGridlike},
+  error::TermgameResult,
+  grid::{Grid, Gridlike},
   pos::{Diff, Pos},
 };
 use xword_gen::xword::XWordTile;
@@ -16,15 +17,14 @@ enum CrosswordView {
   Compressed,
 }
 
-pub struct Crossword {
-  grid: Grid<XWordTile>,
+pub struct CrosswordEntity {
+  crossword: Crossword,
   view: CrosswordView,
   player_pos: Pos,
   to_right: bool,
-  clue_map: HashMap<(Pos, bool), Pos>,
 }
 
-impl Crossword {
+impl CrosswordEntity {
   fn char_display(c: char) -> char {
     c.to_ascii_uppercase()
   }
@@ -43,48 +43,25 @@ impl Crossword {
     }
   }
 
-  fn build_clue_map(grid: &Grid<XWordTile>) -> HashMap<(Pos, bool), Pos> {
-    grid
-      .positions()
-      .filter(|&pos| {
-        grid
-          .get(pos)
-          .is_some_and(|tile| !matches!(tile, XWordTile::Wall))
-      })
-      .fold(HashMap::new(), |mut map, pos| {
-        map.insert(
-          (pos, false),
-          map.get(&(pos - Diff::DY, false)).cloned().unwrap_or(pos),
-        );
-        map.insert(
-          (pos, true),
-          map.get(&(pos - Diff::DX, true)).cloned().unwrap_or(pos),
-        );
-        map
-      })
-  }
-
   pub fn from_grid(grid: Grid<XWordTile>) -> Self {
-    let clue_map = Self::build_clue_map(&grid);
     Self {
-      grid,
+      crossword: Crossword::from_grid(grid),
       view: CrosswordView::Expanded,
       player_pos: Pos::zero(),
       to_right: true,
-      clue_map,
     }
   }
 
   pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
-    self.grid = new_grid;
+    self.crossword = Crossword::from_grid(new_grid);
   }
 
   pub fn width(&self) -> u32 {
-    self.grid.width()
+    self.crossword.width()
   }
 
   pub fn height(&self) -> u32 {
-    self.grid.height()
+    self.crossword.height()
   }
 
   pub fn player_screen_pos(&self) -> Pos {
@@ -102,35 +79,28 @@ impl Crossword {
     self.height() * self.yscale() as u32 + 1
   }
 
-  pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {
-    self
-      .grid
-      .get(pos)
-      .ok_or_else(|| TermgameError::Internal(format!("Pos is out of bounds: {pos}")).into())
-  }
-
   pub fn tile_mut(&mut self, pos: Pos) -> TermgameResult<&mut XWordTile> {
-    self.grid.get_mut(pos).ok_or_else(|| {
-      TermgameError::Internal(format!("Mutable access pos is out of bounds: {pos}")).into()
-    })
+    self.crossword.tile_mut(pos)
   }
 
   fn should_highlight(&self, pos: Pos) -> bool {
     pos != self.player_pos
       && self
-        .clue_map
+        .crossword
+        .clue_map()
         .get(&(pos, self.to_right))
         .is_some_and(|row_id| {
           self
-            .clue_map
+            .crossword
+            .clue_map()
             .get(&(self.player_pos, self.to_right))
             .is_some_and(|player_row_id| row_id == player_row_id)
         })
   }
 
   fn can_move_to(&self, pos: Pos) -> bool {
-    (0..self.grid.width() as i32).contains(&pos.x)
-      && (0..self.grid.height() as i32).contains(&pos.y)
+    (0..self.crossword.width() as i32).contains(&pos.x)
+      && (0..self.crossword.height() as i32).contains(&pos.y)
       && !self.is_wall(pos)
   }
 
@@ -162,17 +132,11 @@ impl Crossword {
   }
 
   fn is_empty(&self, pos: Pos) -> bool {
-    self
-      .grid
-      .get(pos)
-      .is_none_or(|tile| matches!(tile, XWordTile::Empty))
+    self.crossword.is_empty(pos)
   }
 
   fn is_wall(&self, pos: Pos) -> bool {
-    self
-      .grid
-      .get(pos)
-      .is_none_or(|tile| matches!(tile, XWordTile::Wall))
+    self.crossword.is_wall(pos)
   }
 
   fn cross_at(&self, pos: Pos) -> char {
@@ -187,9 +151,9 @@ impl Crossword {
       '\u{2545}', '\u{2549}', '\u{2548}', '\u{254B}',
     ];
 
-    let u_in_bounds = self.grid.in_bounds(pos + Diff { x: 0, y: -1 });
-    let self_in_bounds = self.grid.in_bounds(pos + Diff { x: 0, y: 0 });
-    let l_in_bounds = self.grid.in_bounds(pos + Diff { x: -1, y: 0 });
+    let u_in_bounds = self.crossword.grid().in_bounds(pos + Diff { x: 0, y: -1 });
+    let self_in_bounds = self.crossword.grid().in_bounds(pos + Diff { x: 0, y: 0 });
+    let l_in_bounds = self.crossword.grid().in_bounds(pos + Diff { x: -1, y: 0 });
 
     let ul = self.is_wall(pos + Diff { x: -1, y: -1 });
     let ur = self.is_wall(pos + Diff { x: 0, y: -1 });
@@ -296,7 +260,7 @@ impl Crossword {
                 (0..self.xscale()).flat_map(move |dx| {
                   let screen_pos = screen_pos + Diff { x: dx, y: dy };
                   let grid_pos = Pos { x, y };
-                  let letter = self.grid.get(grid_pos)?.clone();
+                  let letter = self.crossword.tile(grid_pos).ok()?.clone();
 
                   let mut fg = col;
                   let mut bg = None;
@@ -415,11 +379,11 @@ impl Crossword {
         let pos = Pos { x, y };
         let screen_pos = Pos { x: x * 2, y };
 
-        let tile = match self.grid.get(pos) {
-          Some(&XWordTile::Letter(c)) => Self::char_display(c),
-          Some(XWordTile::Wall) => 'X',
-          Some(XWordTile::Empty) => '_',
-          None => unreachable!(),
+        let tile = match self.crossword.tile(pos) {
+          Ok(&XWordTile::Letter(c)) => Self::char_display(c),
+          Ok(XWordTile::Wall) => 'X',
+          Ok(XWordTile::Empty) => '_',
+          Err(_) => unreachable!(),
         };
         let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
 
@@ -433,7 +397,7 @@ impl Crossword {
   }
 }
 
-impl Entity for Crossword {
+impl Entity for CrosswordEntity {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
     match self.view {
       CrosswordView::Expanded => self.generate_expanded_view(),

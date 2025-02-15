@@ -7,3 +7,4 @@ edition = "2021"
 bitcode = { version = "0.6.4", features = ["derive"] }
 tokio = { version = "1.43.0", features = ["full"] }
 util = { path = "../util" }
+xword_gen = { path = "../xword_gen" }

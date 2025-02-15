@@ -262,6 +262,7 @@ dependencies = [
  "bitcode",
  "tokio",
  "util",
+ "xword_gen",
 ]
 
 [[package]]

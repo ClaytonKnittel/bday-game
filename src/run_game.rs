@@ -4,14 +4,16 @@ use common::msg::ServerMessage;
 use termgame::event_loop::EventLoop;
 use util::{bitcode, error::TermgameResult};
 
-use crate::{client::Client, crossword::Crossword};
+use crate::{client::Client, crossword::CrosswordEntity};
 
 pub async fn play_puzzle() -> TermgameResult {
   let mut client = Client::new().await?;
 
   let mut ev = EventLoop::new()?;
   let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
+  let xword_uid = ev
+    .scene()
+    .add_entity(Box::new(CrosswordEntity::from_grid(grid)));
 
   let mut ev_iter = ev.async_event_loop();
   for t in 0usize.. {
@@ -20,7 +22,7 @@ pub async fn play_puzzle() -> TermgameResult {
     }
 
     let scene = ev.scene();
-    let xword: &mut Crossword = scene.entity_mut(xword_uid)?;
+    let xword: &mut CrosswordEntity = scene.entity_mut(xword_uid)?;
 
     for message in client.pending_server_messages() {
       match message? {
