@@ -1,7 +1,7 @@
 use std::iter;
 
 use termgame::{draw::Draw, entity::Entity};
-use util::pos::Pos;
+use util::pos::{Diff, Pos};
 
 const Z_IDX: i32 = 50;
 
@@ -17,6 +17,13 @@ impl TextBox {
     Self { src, text, line_len, fixed_width: false }
   }
 
+  pub fn with_bottom_right_pos(self) -> Self {
+    Self {
+      src: self.src - Diff { x: self.max_line_len() as i32 + 3, y: 0 },
+      ..self
+    }
+  }
+
   pub fn with_fixed_width(self) -> Self {
     Self { fixed_width: true, ..self }
   }
@@ -27,6 +34,20 @@ impl TextBox {
 
   pub fn set_pos(&mut self, pos: Pos) {
     self.src = pos;
+  }
+
+  fn max_line_len(&self) -> u32 {
+    self
+      .fixed_width
+      .then_some(self.line_len as usize)
+      .or_else(|| {
+        self
+          .to_lines()
+          .into_iter()
+          .map(|line| line.chars().count())
+          .max()
+      })
+      .unwrap_or_default() as u32
   }
 
   fn to_lines(&self) -> Vec<String> {
@@ -63,75 +84,67 @@ impl Entity for TextBox {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
     let lines = self.to_lines();
     let num_lines = lines.len() as i32;
-    Box::new(
-      self
-        .fixed_width
-        .then_some(self.line_len as usize)
-        .or_else(|| lines.iter().map(|line| line.chars().count()).max())
-        .map(|max_line_len| {
-          let max_line_len = max_line_len as i32;
-          let x = self.src.x;
-          let y = self.src.y;
+    let max_line_len = self.max_line_len() as i32;
+    let x = self.src.x;
+    let y = self.src.y;
 
-          [
-            (Draw::new('+').with_z(Z_IDX), Pos { x, y }),
-            (
-              Draw::new('+').with_z(Z_IDX),
-              Pos { x: x + max_line_len + 3, y },
-            ),
-            (
-              Draw::new('+').with_z(Z_IDX),
-              Pos { x, y: y - num_lines - 1 },
-            ),
-            (
-              Draw::new('+').with_z(Z_IDX),
-              Pos {
-                x: x + max_line_len + 3,
-                y: y - num_lines - 1,
-              },
-            ),
-          ]
+    Box::new(
+      [
+        (Draw::new('+').with_z(Z_IDX), Pos { x, y }),
+        (
+          Draw::new('+').with_z(Z_IDX),
+          Pos { x: x + max_line_len + 3, y },
+        ),
+        (
+          Draw::new('+').with_z(Z_IDX),
+          Pos { x, y: y - num_lines - 1 },
+        ),
+        (
+          Draw::new('+').with_z(Z_IDX),
+          Pos {
+            x: x + max_line_len + 3,
+            y: y - num_lines - 1,
+          },
+        ),
+      ]
+      .into_iter()
+      .chain((0..max_line_len + 2).flat_map(move |dx| {
+        [
+          (Draw::new('-').with_z(Z_IDX), Pos { x: x + dx + 1, y }),
+          (
+            Draw::new('-').with_z(Z_IDX),
+            Pos { x: x + dx + 1, y: y - num_lines - 1 },
+          ),
+        ]
+      }))
+      .chain((0..num_lines).flat_map(move |dy| {
+        [
+          (Draw::new('|').with_z(Z_IDX), Pos { x, y: y - dy - 1 }),
+          (
+            Draw::new('|').with_z(Z_IDX),
+            Pos { x: x + max_line_len + 3, y: y - dy - 1 },
+          ),
+        ]
+      }))
+      .chain(lines.into_iter().enumerate().flat_map(move |(row, line)| {
+        let row = row as i32;
+        let y = y - num_lines + row;
+        line
+          .chars()
+          .chain(iter::repeat(' '))
+          .take(max_line_len as usize)
+          .collect::<Vec<_>>()
           .into_iter()
-          .chain((0..max_line_len + 2).flat_map(move |dx| {
-            [
-              (Draw::new('-').with_z(Z_IDX), Pos { x: x + dx + 1, y }),
-              (
-                Draw::new('-').with_z(Z_IDX),
-                Pos { x: x + dx + 1, y: y - num_lines - 1 },
-              ),
-            ]
-          }))
-          .chain((0..num_lines).flat_map(move |dy| {
-            [
-              (Draw::new('|').with_z(Z_IDX), Pos { x, y: y - dy - 1 }),
-              (
-                Draw::new('|').with_z(Z_IDX),
-                Pos { x: x + max_line_len + 3, y: y - dy - 1 },
-              ),
-            ]
-          }))
-          .chain(lines.into_iter().enumerate().flat_map(move |(row, line)| {
-            let row = row as i32;
-            let y = y - num_lines + row;
-            line
-              .chars()
-              .chain(iter::repeat(' '))
-              .take(max_line_len as usize)
-              .collect::<Vec<_>>()
-              .into_iter()
-              .enumerate()
-              .map(move |(col, c)| (Draw::new(c).with_z(Z_IDX), Pos { x: x + col as i32 + 2, y }))
-              .chain([
-                (Draw::new(' ').with_z(Z_IDX), Pos { x: x + 1, y }),
-                (
-                  Draw::new(' ').with_z(Z_IDX),
-                  Pos { x: x + max_line_len + 2, y },
-                ),
-              ])
-          }))
-        })
-        .into_iter()
-        .flatten(),
+          .enumerate()
+          .map(move |(col, c)| (Draw::new(c).with_z(Z_IDX), Pos { x: x + col as i32 + 2, y }))
+          .chain([
+            (Draw::new(' ').with_z(Z_IDX), Pos { x: x + 1, y }),
+            (
+              Draw::new(' ').with_z(Z_IDX),
+              Pos { x: x + max_line_len + 2, y },
+            ),
+          ])
+      })),
     )
   }
 

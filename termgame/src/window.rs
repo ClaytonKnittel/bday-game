@@ -1,8 +1,8 @@
 use std::io::Write;
 use termion::cursor;
-use util::pos::Pos;
+use util::pos::{Diff, Pos};
 
-use crate::draw::Draw;
+use crate::draw::{Draw, DrawStyle};
 
 pub struct Window<W: Write> {
   stdout: W,
@@ -73,12 +73,19 @@ impl<W: Write> Window<W> {
   }
 
   pub fn draw(&mut self, draw: Draw, pos: Pos) {
-    let pos = pos
-      - if draw.fixed_pos() {
-        Pos::zero()
-      } else {
-        self.camera_pos
-      };
+    let pos = match draw.draw_style() {
+      DrawStyle::Relative => pos - self.camera_pos,
+      DrawStyle::FixedPosTopLeft => pos - Pos::zero(),
+      DrawStyle::FixedPosTopRight => pos + Diff { x: self.width() as i32 - 1, y: 0 } - Pos::zero(),
+      DrawStyle::FixedPosBottomRight => {
+        pos
+          + Diff {
+            x: self.width() as i32 - 1,
+            y: self.height() as i32 - 1,
+          }
+          - Pos::zero()
+      }
+    };
     let (x, y) = (pos.x, pos.y);
     if 0 > x || x >= self.width() as i32 || 0 > y || y >= self.height() as i32 {
       return;

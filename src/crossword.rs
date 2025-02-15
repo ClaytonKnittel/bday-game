@@ -6,7 +6,12 @@ use common::{
   player_info::{PlayerColor, PlayerInfo},
 };
 use itertools::Itertools;
-use termgame::{color, draw::Draw, entity::Entity, Key};
+use termgame::{
+  color,
+  draw::{Draw, DrawStyle},
+  entity::Entity,
+  Key,
+};
 use util::{
   error::TermgameResult,
   grid::{Grid, Gridlike},
@@ -516,25 +521,41 @@ impl CrosswordEntity {
     })
   }
 
-  fn generate_clue(&self, is_row: bool, top_left: Pos) -> impl Iterator<Item = (Draw, Pos)> + '_ {
+  fn generate_clues(&self) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     self
       .crossword
-      .clue_for_pos(self.player_info.player_pos(), is_row)
-      .map(|clue| {
-        TextBox::new(
-          top_left,
-          format!(
-            "{} {}: {}",
-            clue.clue_num,
-            if is_row { "across" } else { "down" },
-            clue.clue_txt
-          ),
+      .clue_for_pos(self.player_info.player_pos(), true)
+      .and_then(|row_clue| {
+        self
+          .crossword
+          .clue_for_pos(self.player_info.player_pos(), false)
+          .map(|col_clue| (row_clue, col_clue))
+      })
+      .map(|(row_clue, col_clue)| {
+        let row_clue = TextBox::new(
+          Pos::zero(),
+          format!("{} across: {}", row_clue.clue_num, row_clue.clue_txt),
           CLUE_LINE_LEN,
         )
         .with_fixed_width()
-        .iterate_tiles()
-        .map(|(draw, pos)| (draw.with_fixed_pos(), pos))
-        .collect_vec()
+        .with_bottom_right_pos();
+
+        let col_clue = TextBox::new(
+          Pos {
+            x: 0,
+            y: -(row_clue.display_height() as i32 - 1),
+          },
+          format!("{} down: {}", col_clue.clue_num, col_clue.clue_txt),
+          CLUE_LINE_LEN,
+        )
+        .with_fixed_width()
+        .with_bottom_right_pos();
+
+        row_clue
+          .iterate_tiles()
+          .chain(col_clue.iterate_tiles())
+          .map(|(draw, pos)| (draw.with_draw_style(DrawStyle::FixedPosBottomRight), pos))
+          .collect_vec()
       })
       .into_iter()
       .flatten()
@@ -548,7 +569,7 @@ impl Entity for CrosswordEntity {
         CrosswordView::Expanded => Variant2::Opt1(self.generate_expanded_view()),
         CrosswordView::Compressed => Variant2::Opt2(self.generate_compressed_view()),
       }
-      .chain(self.generate_clue(true, Pos { x: 50, y: 20 })),
+      .chain(self.generate_clues()),
     )
   }
 
