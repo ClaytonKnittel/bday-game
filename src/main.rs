@@ -4,7 +4,6 @@ mod args;
 mod client;
 mod crossword;
 mod interactive_grid;
-mod manager;
 mod pc;
 mod run_game;
 mod textbox;

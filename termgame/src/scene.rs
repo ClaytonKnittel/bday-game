@@ -7,7 +7,7 @@ use util::{
   pos::Pos,
 };
 
-use crate::{draw::Draw, entity::Entity};
+use crate::{draw::Draw, entity::Entity, window::WindowDimensions};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Uid(u64);
@@ -82,12 +82,15 @@ impl Scene {
 }
 
 impl Entity for Scene {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn iterate_tiles<'a>(
+    &'a self,
+    dimensions: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a> {
     Box::new(
       self
         .entities
         .values()
-        .flat_map(|entity| entity.iterate_tiles()),
+        .flat_map(|entity| entity.iterate_tiles(dimensions)),
     )
   }
 

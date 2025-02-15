@@ -4,11 +4,25 @@ use util::pos::{Diff, Pos};
 
 use crate::draw::{Draw, DrawStyle};
 
+#[derive(Clone)]
+pub struct WindowDimensions {
+  pub camera_pos: Pos,
+  pub width: u32,
+  pub height: u32,
+}
+
+impl WindowDimensions {
+  pub fn screen_dim(&self) -> Pos {
+    Pos {
+      x: self.width as i32,
+      y: self.height as i32,
+    }
+  }
+}
+
 pub struct Window<W: Write> {
   stdout: W,
-  camera_pos: Pos,
-  width: u32,
-  height: u32,
+  dimensions: WindowDimensions,
   canvas: Vec<Option<Draw>>,
   prev_canvas: Vec<Option<Draw>>,
 }
@@ -17,9 +31,7 @@ impl<W: Write> Window<W> {
   pub fn new(stdout: W, width: u32, height: u32) -> Self {
     let mut s = Self {
       stdout,
-      camera_pos: Pos::zero(),
-      width,
-      height,
+      dimensions: WindowDimensions { camera_pos: Pos::zero(), width, height },
       canvas: (0..(width * height)).map(|_| None).collect(),
       prev_canvas: (0..(width * height)).map(|_| None).collect(),
     };
@@ -28,28 +40,39 @@ impl<W: Write> Window<W> {
     s
   }
 
+  pub fn window_dimensions(&self) -> &WindowDimensions {
+    &self.dimensions
+  }
+
+  pub fn screen_dim(&self) -> Pos {
+    Pos {
+      x: self.width() as i32,
+      y: self.height() as i32,
+    }
+  }
+
   pub fn width(&self) -> u32 {
-    self.width
+    self.dimensions.width
   }
 
   pub fn height(&self) -> u32 {
-    self.height
+    self.dimensions.height
   }
 
   pub fn camera_pos(&self) -> Pos {
-    self.camera_pos
+    self.dimensions.camera_pos
   }
 
   pub fn camera_pos_mut(&mut self) -> &mut Pos {
-    &mut self.camera_pos
+    &mut self.dimensions.camera_pos
   }
 
   fn idx_to_pos(&self, idx: usize) -> (u32, u32) {
-    (idx as u32 % self.width, idx as u32 / self.width)
+    (idx as u32 % self.width(), idx as u32 / self.width())
   }
 
   fn idx(&self, x: u32, y: u32) -> usize {
-    (x + y * self.width) as usize
+    (x + y * self.width()) as usize
   }
 
   fn get(&self, x: u32, y: u32) -> &Option<Draw> {
@@ -69,12 +92,12 @@ impl<W: Write> Window<W> {
 
   pub fn reset(&mut self) {
     std::mem::swap(&mut self.prev_canvas, &mut self.canvas);
-    self.canvas = (0..(self.width * self.height)).map(|_| None).collect();
+    self.canvas = (0..(self.width() * self.height())).map(|_| None).collect();
   }
 
   pub fn draw(&mut self, draw: Draw, pos: Pos) {
     let pos = match draw.draw_style() {
-      DrawStyle::Relative => pos - self.camera_pos,
+      DrawStyle::Relative => pos - self.camera_pos(),
       DrawStyle::FixedPosTopLeft => pos - Pos::zero(),
       DrawStyle::FixedPosTopRight => pos + Diff { x: self.width() as i32 - 1, y: 0 } - Pos::zero(),
       DrawStyle::FixedPosBottomRight => {
@@ -138,7 +161,11 @@ impl<W: Write> Window<W> {
         }
       }
     }
-    write!(self.stdout, "{}", cursor::Goto(0, (self.height + 1) as u16))?;
+    write!(
+      self.stdout,
+      "{}",
+      cursor::Goto(0, (self.height() + 1) as u16)
+    )?;
     self.stdout.flush()
   }
 }

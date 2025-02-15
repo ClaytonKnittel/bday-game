@@ -6,7 +6,7 @@ use std::{
 
 use common::crossword::XWordTile;
 use itertools::Itertools;
-use termgame::{color, draw::Draw, entity::Entity, Key};
+use termgame::{color, draw::Draw, entity::Entity, window::WindowDimensions, Key};
 use util::{
   error::TermgameResult,
   grid::{Grid, Gridlike, MutGridlike},
@@ -222,7 +222,10 @@ impl InteractiveGrid {
 }
 
 impl Entity for InteractiveGrid {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn iterate_tiles<'a>(
+    &'a self,
+    _: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a> {
     self.tile_colorer.borrow_mut().refresh(&self.grid);
 
     Box::new(

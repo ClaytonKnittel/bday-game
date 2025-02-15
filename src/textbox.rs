@@ -1,6 +1,6 @@
 use std::iter;
 
-use termgame::{draw::Draw, entity::Entity};
+use termgame::{draw::Draw, entity::Entity, window::WindowDimensions};
 use util::pos::{Diff, Pos};
 
 const Z_IDX: i32 = 50;
@@ -17,15 +17,34 @@ impl TextBox {
     Self { src, text, line_len, fixed_width: false }
   }
 
-  pub fn with_bottom_right_pos(self) -> Self {
+  pub fn with_top_right_pos(self) -> Self {
     Self {
-      src: self.src - Diff { x: self.max_line_len() as i32 + 3, y: 0 },
+      src: self.src
+        - Diff {
+          x: self.display_width() as i32 - 1,
+          y: -(self.display_height() as i32) + 1,
+        },
       ..self
     }
   }
 
+  pub fn with_bottom_right_pos(self) -> Self {
+    Self {
+      src: self.src - Diff { x: self.display_width() as i32 - 1, y: 0 },
+      ..self
+    }
+  }
+
+  pub fn move_by(&mut self, diff: Diff) {
+    self.src += diff;
+  }
+
   pub fn with_fixed_width(self) -> Self {
     Self { fixed_width: true, ..self }
+  }
+
+  pub fn display_width(&self) -> u32 {
+    self.max_line_len() + 4
   }
 
   pub fn display_height(&self) -> u32 {
@@ -81,7 +100,10 @@ impl TextBox {
 */
 
 impl Entity for TextBox {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn iterate_tiles<'a>(
+    &'a self,
+    _: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a> {
     let lines = self.to_lines();
     let num_lines = lines.len() as i32;
     let max_line_len = self.max_line_len() as i32;

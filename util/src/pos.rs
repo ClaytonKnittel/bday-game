@@ -72,6 +72,7 @@ pub struct Diff {
 }
 
 impl Diff {
+  pub const ZERO: Diff = Diff { x: 0, y: 0 };
   pub const DX: Diff = Diff { x: 1, y: 0 };
   pub const DY: Diff = Diff { x: 0, y: 1 };
 }
@@ -81,6 +82,14 @@ impl Add for Diff {
 
   fn add(self, rhs: Self) -> Self {
     Self { x: self.x + rhs.x, y: self.y + rhs.y }
+  }
+}
+
+impl Sub for Diff {
+  type Output = Pos;
+
+  fn sub(self, rhs: Self) -> Pos {
+    Pos { x: self.x - rhs.x, y: self.y - rhs.y }
   }
 }
 

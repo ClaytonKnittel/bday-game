@@ -3,10 +3,16 @@ use std::{any::Any, io::Write};
 use termion::event::Key;
 use util::{error::TermgameResult, pos::Pos};
 
-use crate::{draw::Draw, window::Window};
+use crate::{
+  draw::Draw,
+  window::{Window, WindowDimensions},
+};
 
 pub trait Entity: Any {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_>;
+  fn iterate_tiles<'a>(
+    &'a self,
+    window_dimensions: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a>;
 
   fn as_any(&self) -> &dyn Any;
   fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -38,9 +44,10 @@ pub trait Entity: Any {
   where
     Self: Sized,
   {
-    self.iterate_tiles().for_each(|(draw, pos)| {
+    let dimensions = window.window_dimensions().clone();
+    for (draw, pos) in self.iterate_tiles(&dimensions) {
       window.draw(draw, pos);
-    })
+    }
   }
 }
 

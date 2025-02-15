@@ -10,6 +10,7 @@ use termgame::{
   color,
   draw::{Draw, DrawStyle},
   entity::Entity,
+  window::WindowDimensions,
   Key,
 };
 use util::{
@@ -521,7 +522,10 @@ impl CrosswordEntity {
     })
   }
 
-  fn generate_clues(&self) -> impl Iterator<Item = (Draw, Pos)> + '_ {
+  fn generate_clues(
+    &self,
+    dimensions: &WindowDimensions,
+  ) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     self
       .crossword
       .clue_for_pos(self.player_info.player_pos(), true)
@@ -532,15 +536,14 @@ impl CrosswordEntity {
           .map(|col_clue| (row_clue, col_clue))
       })
       .map(|(row_clue, col_clue)| {
-        let row_clue = TextBox::new(
+        let mut row_clue = TextBox::new(
           Pos::zero(),
           format!("{} across: {}", row_clue.clue_num, row_clue.clue_txt),
           CLUE_LINE_LEN,
         )
-        .with_fixed_width()
-        .with_bottom_right_pos();
+        .with_fixed_width();
 
-        let col_clue = TextBox::new(
+        let mut col_clue = TextBox::new(
           Pos {
             x: 0,
             y: -(row_clue.display_height() as i32 - 1),
@@ -548,13 +551,38 @@ impl CrosswordEntity {
           format!("{} down: {}", col_clue.clue_num, col_clue.clue_txt),
           CLUE_LINE_LEN,
         )
-        .with_fixed_width()
-        .with_bottom_right_pos();
+        .with_fixed_width();
+
+        let topleft_pos = dimensions.screen_dim()
+          - Pos {
+            x: row_clue.display_width().max(col_clue.display_width()) as i32,
+            y: (row_clue.display_height() + col_clue.display_height()) as i32 - 1,
+          };
+        let player_pos =
+          dimensions.screen_dim() - (self.player_screen_pos() - dimensions.camera_pos);
+
+        let draw_style = if player_pos.x + self.xscale() >= topleft_pos.x
+          && player_pos.y + self.yscale() >= topleft_pos.y
+        {
+          row_clue = row_clue.with_top_right_pos();
+          col_clue = col_clue.with_top_right_pos();
+          let diff = Diff {
+            x: 0,
+            y: col_clue.display_height() as i32 - 1,
+          };
+          row_clue.move_by(diff);
+          col_clue.move_by(diff);
+          DrawStyle::FixedPosTopRight
+        } else {
+          row_clue = row_clue.with_bottom_right_pos();
+          col_clue = col_clue.with_bottom_right_pos();
+          DrawStyle::FixedPosBottomRight
+        };
 
         row_clue
-          .iterate_tiles()
-          .chain(col_clue.iterate_tiles())
-          .map(|(draw, pos)| (draw.with_draw_style(DrawStyle::FixedPosBottomRight), pos))
+          .iterate_tiles(dimensions)
+          .chain(col_clue.iterate_tiles(dimensions))
+          .map(|(draw, pos)| (draw.with_draw_style(draw_style), pos))
           .collect_vec()
       })
       .into_iter()
@@ -563,13 +591,16 @@ impl CrosswordEntity {
 }
 
 impl Entity for CrosswordEntity {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn iterate_tiles<'a>(
+    &'a self,
+    dimensions: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a> {
     Box::new(
       match self.view {
         CrosswordView::Expanded => Variant2::Opt1(self.generate_expanded_view()),
         CrosswordView::Compressed => Variant2::Opt2(self.generate_compressed_view()),
       }
-      .chain(self.generate_clues()),
+      .chain(self.generate_clues(dimensions)),
     )
   }
 
