@@ -13,9 +13,10 @@ use tokio::{
 use util::{
   bitcode,
   error::{TermgameError, TermgameResult},
+  pos::Pos,
 };
 
-use crate::{client::Client, crossword::CrosswordEntity};
+use crate::{client::Client, crossword::CrosswordEntity, textbox::TextBox};
 
 const SYNC_PERIOD: usize = 5 * 50;
 
@@ -107,6 +108,11 @@ async fn play(client: &mut Client, uid: u64) -> TermgameResult {
       player_info,
       uid,
     )));
+
+  let textbox_uid = ev.scene().add_entity(Box::new(TextBox::new(
+    Pos { x: 10, y: 4 },
+    "testing 1 2 3".to_owned(),
+  )));
 
   let mut ev_iter = ev.async_event_loop();
   for t in 0usize.. {

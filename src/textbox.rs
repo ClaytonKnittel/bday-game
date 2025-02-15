@@ -124,7 +124,7 @@ impl Entity for TextBox {
                   Draw::new(c).with_z(Z_IDX),
                   Pos {
                     x: x + col as i32 + 2,
-                    y: y - num_lines - 2 + row as i32,
+                    y: y - 1 - row as i32,
                   },
                 )
               })
