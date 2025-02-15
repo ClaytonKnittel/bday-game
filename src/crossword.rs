@@ -1,6 +1,10 @@
 use std::{collections::HashMap, iter, mem};
 
-use common::{crossword::Crossword, msg::ClientMessage, player_info::PlayerInfo};
+use common::{
+  crossword::Crossword,
+  msg::ClientMessage,
+  player_info::{PlayerColor, PlayerInfo},
+};
 use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
   error::TermgameResult,
@@ -17,14 +21,46 @@ enum CrosswordView {
   Compressed,
 }
 
+struct PlayerInfoManager {
+  uid: u64,
+  player_info: PlayerInfo,
+  other_player_info: HashMap<u64, PlayerInfo>,
+  other_player_pos_map: HashMap<Pos, u64>,
+}
+
+impl PlayerInfoManager {
+  fn new(uid: u64) -> Self {
+    Self {
+      uid,
+      player_info: PlayerInfo {
+        pos: Pos::zero(),
+        color: color::AnsiValue::rgb(1, 2, 3).into(),
+      },
+      other_player_info: HashMap::new(),
+      other_player_pos_map: HashMap::new(),
+    }
+  }
+
+  fn refresh(&mut self, mut player_info: HashMap<u64, PlayerInfo>) {
+    if let Some(mut player_info) = player_info.remove(&self.uid) {
+      // Don't overwrite pos.
+      player_info.pos = self.player_info.pos;
+      self.player_info = player_info;
+    }
+    self.other_player_info = player_info;
+  }
+
+  fn player_pos(&self) -> Pos {
+    self.player_info.pos
+  }
+}
+
 pub struct CrosswordEntity {
   crossword: Crossword,
   view: CrosswordView,
-  player_pos: Pos,
   to_right: bool,
-  uid: u64,
-  other_player_info: HashMap<u64, PlayerInfo>,
   actions: Vec<ClientMessage>,
+  player_info: PlayerInfoManager,
 }
 
 impl CrosswordEntity {
@@ -50,20 +86,22 @@ impl CrosswordEntity {
     Self {
       crossword: Crossword::from_grid(grid),
       view: CrosswordView::Expanded,
-      player_pos: Pos::zero(),
       to_right: true,
-      uid,
-      other_player_info: HashMap::new(),
       actions: vec![],
+      player_info: PlayerInfoManager::new(uid),
     }
   }
 
-  pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
-    self.crossword = Crossword::from_grid(new_grid);
+  pub fn swap_for(&mut self, xword: Crossword) {
+    self.crossword = xword;
   }
 
-  pub fn player_info_mut(&mut self, uid: u64) -> Option<&mut PlayerInfo> {
-    self.other_player_info.get_mut(&uid)
+  pub fn other_player_info_mut(&mut self, uid: u64) -> Option<&mut PlayerInfo> {
+    self.player_info.other_player_info.get_mut(&uid)
+  }
+
+  pub fn refresh_player_info(&mut self, player_info: HashMap<u64, PlayerInfo>) {
+    self.player_info.refresh(player_info);
   }
 
   pub fn width(&self) -> u32 {
@@ -76,8 +114,8 @@ impl CrosswordEntity {
 
   pub fn player_screen_pos(&self) -> Pos {
     Pos {
-      x: self.player_pos.x * self.xscale() + self.xscale() / 2,
-      y: self.player_pos.y * self.yscale() + self.yscale() / 2,
+      x: self.player_info.player_pos().x * self.xscale() + self.xscale() / 2,
+      y: self.player_info.player_pos().y * self.yscale() + self.yscale() / 2,
     }
   }
 
@@ -100,7 +138,7 @@ impl CrosswordEntity {
   }
 
   fn should_highlight(&self, pos: Pos) -> bool {
-    pos != self.player_pos
+    pos != self.player_info.player_pos()
       && self
         .crossword
         .clue_map()
@@ -109,9 +147,27 @@ impl CrosswordEntity {
           self
             .crossword
             .clue_map()
-            .get(&(self.player_pos, self.to_right))
+            .get(&(self.player_info.player_pos(), self.to_right))
             .is_some_and(|player_row_id| row_id == player_row_id)
         })
+  }
+
+  fn player_highlight_color(&self, pos: Pos) -> Option<PlayerColor> {
+    if self.player_info.player_pos() == pos {
+      Some(self.player_info.player_info.color)
+    } else {
+      self
+        .player_info
+        .other_player_pos_map
+        .get(&pos)
+        .and_then(|uid| {
+          self
+            .player_info
+            .other_player_info
+            .get(uid)
+            .map(|player_info| player_info.color)
+        })
+    }
   }
 
   fn can_move_to(&self, pos: Pos) -> bool {
@@ -281,7 +337,7 @@ impl CrosswordEntity {
                   let mut fg = col;
                   let mut bg = None;
 
-                  if pos == self.player_pos && dx != 0 && dy != 0 {
+                  if pos == self.player_info.player_pos() && dx != 0 && dy != 0 {
                     fg = color::AnsiValue::grayscale(5);
                     bg = Some(color::AnsiValue::rgb(2, 4, 3));
                   }
@@ -403,7 +459,7 @@ impl CrosswordEntity {
         };
         let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
 
-        if pos == self.player_pos {
+        if pos == self.player_info.player_pos() {
           draw = draw.with_fg(color::AnsiValue::rgb(5, 0, 3));
         }
 
@@ -429,7 +485,7 @@ impl Entity for CrosswordEntity {
   }
 
   fn keypress(&mut self, key: Key) -> util::error::TermgameResult {
-    let mut player_pos = self.player_pos;
+    let mut player_pos = self.player_info.player_pos();
 
     match key {
       Key::Char(letter @ 'a'..='z') => {
@@ -471,10 +527,11 @@ impl Entity for CrosswordEntity {
     }
 
     if self.can_move_to(player_pos) {
-      self.player_pos = player_pos;
-      self
-        .actions
-        .push(ClientMessage::PositionUpdate { uid: self.uid, pos: player_pos });
+      self.player_info.player_info.pos = player_pos;
+      self.actions.push(ClientMessage::PositionUpdate {
+        uid: self.player_info.uid,
+        pos: player_pos,
+      });
     }
 
     Ok(())

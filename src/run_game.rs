@@ -1,6 +1,6 @@
 use std::fs;
 
-use common::msg::ServerMessage;
+use common::msg::{ClientMessage, ServerMessage};
 use termgame::event_loop::EventLoop;
 use util::{
   bitcode,
@@ -9,20 +9,24 @@ use util::{
 
 use crate::{client::Client, crossword::CrosswordEntity};
 
+const SYNC_PERIOD: usize = 5 * 50;
+
+async fn wait_for_uid(client: &mut Client) -> TermgameResult<u64> {
+  loop {
+    if let Some(message) = client.recv_server_message().await {
+      match message {
+        ServerMessage::NewConnection { uid } => return Ok(uid),
+        _ => continue,
+      }
+    } else {
+      return Err(TermgameError::Internal("Connection closed".to_owned()).into());
+    }
+  }
+}
+
 pub async fn play_puzzle() -> TermgameResult {
   let mut client = Client::new().await?;
-
-  let uid = client
-    .pending_server_messages()
-    .find_map(|message| {
-      message
-        .map(|message| match message {
-          ServerMessage::NewConnection { uid } => Some(uid),
-          _ => None,
-        })
-        .transpose()
-    })
-    .ok_or_else(|| TermgameError::Internal("No UID found!".to_owned()))??;
+  let uid = wait_for_uid(&mut client).await?;
 
   let mut ev = EventLoop::new()?;
   let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
@@ -39,14 +43,22 @@ pub async fn play_puzzle() -> TermgameResult {
     let scene = ev.scene();
     let xword: &mut CrosswordEntity = scene.entity_mut(xword_uid)?;
 
+    if t % SYNC_PERIOD == 0 {
+      client.send_message(ClientMessage::FullRefresh).await?;
+    }
+
     for message in client.pending_server_messages() {
       match message? {
         ServerMessage::NewConnection { uid: _ } => {}
         ServerMessage::ConnectToExisting { success: _ } => {}
         ServerMessage::PlayerPositionUpdate { uid, pos } => {
-          if let Some(player_info) = xword.player_info_mut(uid) {
+          if let Some(player_info) = xword.other_player_info_mut(uid) {
             player_info.pos = pos;
           }
+        }
+        ServerMessage::FullRefresh { crossword, player_info } => {
+          xword.swap_for(crossword.into());
+          xword.refresh_player_info(player_info);
         }
         ServerMessage::Ping => {}
       }

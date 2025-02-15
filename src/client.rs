@@ -87,6 +87,10 @@ impl Client {
       })
   }
 
+  pub async fn recv_server_message(&mut self) -> Option<ServerMessage> {
+    self.rx.recv().await
+  }
+
   pub async fn send_message(&mut self, message: ClientMessage) -> TermgameResult {
     write_message_to_wire(&mut self.stream, message).await
   }

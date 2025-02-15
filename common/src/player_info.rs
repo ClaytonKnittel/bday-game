@@ -2,7 +2,7 @@ use bitcode::{Decode, Encode};
 use termgame::color;
 use util::pos::Pos;
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Clone, Copy, Debug, Encode, Decode)]
 pub struct PlayerColor(u8);
 
 impl From<color::AnsiValue> for PlayerColor {
@@ -17,7 +17,7 @@ impl From<PlayerColor> for color::AnsiValue {
   }
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct PlayerInfo {
   pub pos: Pos,
   pub color: PlayerColor,

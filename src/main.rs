@@ -17,6 +17,7 @@ use std::{
 
 use args::{Args, RunMode};
 use clap::Parser;
+use common::crossword::Crossword;
 use crossword::CrosswordEntity;
 use interactive_grid::{InteractiveGrid, InteractiveGridMode};
 use pc::Pc;
@@ -183,7 +184,7 @@ fn show_dlx_iters() -> TermgameResult {
   let mut ev = EventLoop::new()?;
   let xword_uid = ev
     .scene()
-    .add_entity(Box::new(CrosswordEntity::from_grid(grid.clone())));
+    .add_entity(Box::new(CrosswordEntity::from_grid(grid.clone(), 0)));
 
   let mut done = false;
   let pc_uid = ev
@@ -195,7 +196,9 @@ fn show_dlx_iters() -> TermgameResult {
 
     if !done {
       if let Some(grid) = x_iter.next() {
-        scene.entity_mut::<CrosswordEntity>(xword_uid)?.swap_grid(grid);
+        scene
+          .entity_mut::<CrosswordEntity>(xword_uid)?
+          .swap_for(Crossword::from_grid(grid));
       } else {
         done = true;
       }

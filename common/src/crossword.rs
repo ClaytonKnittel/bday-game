@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use bitcode::{Decode, Encode};
 use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
@@ -7,6 +8,7 @@ use util::{
 };
 use xword_gen::xword::XWordTile;
 
+#[derive(Clone)]
 pub struct Crossword {
   grid: Grid<XWordTile>,
   clue_map: HashMap<(Pos, bool), Pos>,
@@ -88,5 +90,22 @@ impl Crossword {
       .grid
       .get(pos)
       .is_none_or(|tile| matches!(tile, XWordTile::Wall))
+  }
+}
+
+#[derive(Clone, Debug, Encode, Decode)]
+pub struct CrosswordEncoding {
+  grid: Grid<XWordTile>,
+}
+
+impl From<Crossword> for CrosswordEncoding {
+  fn from(value: Crossword) -> Self {
+    Self { grid: value.grid }
+  }
+}
+
+impl From<CrosswordEncoding> for Crossword {
+  fn from(value: CrosswordEncoding) -> Self {
+    Self::from_grid(value.grid)
   }
 }

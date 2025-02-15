@@ -68,6 +68,10 @@ where
     self.state = ClientState::Dead;
   }
 
+  pub fn player_info(&self) -> &PlayerInfo {
+    &self.player_info
+  }
+
   pub fn player_info_mut(&mut self) -> &mut PlayerInfo {
     &mut self.player_info
   }
@@ -117,16 +121,16 @@ where
   }
 }
 
-impl<'a, W> Deref for AuthenticatedLiveClient<'a, W> {
+impl<W> Deref for AuthenticatedLiveClient<'_, W> {
   type Target = LiveClient<W>;
 
   fn deref(&self) -> &Self::Target {
-    &self.live_client
+    self.live_client
   }
 }
 
-impl<'a, W> DerefMut for AuthenticatedLiveClient<'a, W> {
+impl<W> DerefMut for AuthenticatedLiveClient<'_, W> {
   fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.live_client
+    self.live_client
   }
 }

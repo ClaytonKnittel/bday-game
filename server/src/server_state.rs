@@ -43,6 +43,10 @@ where
     new_uid
   }
 
+  fn all_connections(&self) -> impl Iterator<Item = (&u64, &ClientContext<W>)> {
+    self.clients.iter()
+  }
+
   fn all_connections_mut(&mut self) -> impl Iterator<Item = (&u64, &mut ClientContext<W>)> {
     self.clients.iter_mut()
   }
@@ -78,7 +82,6 @@ where
 
   async fn to_authenticated_mut(
     &mut self,
-    stream: &Arc<Mutex<W>>,
     uid: u64,
   ) -> TermgameResult<AuthenticatedLiveClient<'_, W>> {
     if let Some(state) = self.clients.get_mut(&uid) {
@@ -98,10 +101,9 @@ where
 
   async fn to_authenticated_context_mut(
     &mut self,
-    stream: &Arc<Mutex<W>>,
     uid: u64,
   ) -> TermgameResult<&mut ClientContext<W>> {
-    self.to_authenticated_mut(stream, uid).await?;
+    self.to_authenticated_mut(uid).await?;
     self
       .clients
       .get_mut(&uid)
@@ -141,15 +143,25 @@ where
 
   async fn position_update(
     &mut self,
-    stream: Arc<Mutex<W>>,
     uid: u64,
     pos: Pos,
   ) -> TermgameResult<impl Iterator<Item = Action>> {
-    let context = self.to_authenticated_context_mut(&stream, uid).await?;
+    let context = self.to_authenticated_context_mut(uid).await?;
     context.player_info_mut().pos = pos;
     Ok(once(Action::Broadcast(
       ServerMessage::PlayerPositionUpdate { uid, pos },
     )))
+  }
+
+  async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
+    Ok(once(Action::Broadcast(ServerMessage::FullRefresh {
+      crossword: self.crossword.clone().into(),
+      player_info: self
+        .all_connections()
+        .filter(|(_, connection)| connection.is_live())
+        .map(|(&uid, connection)| (uid, connection.player_info().clone()))
+        .collect(),
+    })))
   }
 
   pub async fn respond_to_message(
@@ -174,7 +186,10 @@ where
         execute!(self.connect_to_existing(stream.clone(), uid).await?)
       }
       ClientMessage::PositionUpdate { uid, pos } => {
-        execute!(self.position_update(stream.clone(), uid, pos).await?)
+        execute!(self.position_update(uid, pos).await?)
+      }
+      ClientMessage::FullRefresh => {
+        execute!(self.full_refresh().await?)
       }
     }
   }
