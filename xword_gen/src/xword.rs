@@ -2,16 +2,15 @@ use std::{
   borrow::Borrow,
   cmp::Ordering,
   collections::{HashMap, HashSet},
-  fmt::Display,
   iter::{self, once},
   rc::Rc,
   sync::{Arc, Mutex},
   thread,
 };
 
+use common::crossword::{Crossword, XWordClueNumber, XWordCluePosition, XWordEntry, XWordTile};
 use itertools::Itertools;
 use util::{
-  bitcode::{Decode, Encode},
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
   pos::{Diff, Pos},
@@ -22,18 +21,6 @@ use util::{
 use dlx::{ColorItem, Constraint, Dlx, DlxIteratorWithNames, HeaderType, StepwiseDlxIterResult};
 
 use crate::word_bank::{LetterFrequencyMap, WordBank};
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct XWordClueNumber {
-  pub number: u32,
-  pub is_row: bool,
-}
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct XWordCluePosition {
-  pub pos: Pos,
-  pub clue_number: XWordClueNumber,
-}
 
 /// Tiles indicate letters filled in on the board by a clue. Each letter
 /// placement by a horizontal/vertical clue selects 5 of the 10 constraints
@@ -68,12 +55,6 @@ pub struct XWordClueAssignment {
   clue_pos: XWordCluePosition,
 }
 
-struct XWordEntry {
-  number: u32,
-  pos: Pos,
-  length: u32,
-}
-
 #[derive(Clone, Debug)]
 pub struct XWordWord {
   pub word: String,
@@ -87,37 +68,6 @@ impl XWordWord {
 
   pub fn new_required(word: String) -> Self {
     XWordWord { word, required: true }
-  }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-pub enum XWordTile {
-  Letter(char),
-  Empty,
-  Wall,
-}
-
-impl XWordTile {
-  pub fn empty(&self) -> bool {
-    matches!(self, XWordTile::Empty)
-  }
-
-  pub fn available(&self) -> bool {
-    matches!(self, XWordTile::Empty | XWordTile::Letter(_))
-  }
-}
-
-impl Display for XWordTile {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "{}",
-      match self {
-        XWordTile::Letter(c) => *c,
-        XWordTile::Empty => '_',
-        XWordTile::Wall => '*',
-      }
-    )
   }
 }
 
@@ -177,75 +127,12 @@ trait XWordInternal {
     self.board().get(pos).is_some_and(|tile| tile.available())
   }
 
-  fn iterate_board_row_clues<'a, G: Gridlike<XWordTile> + 'a>(
-    board: G,
-  ) -> impl Iterator<Item = XWordEntry> + 'a {
-    struct EmptySequences<'a, I> {
-      x: u32,
-      y: u32,
-      clue_number: &'a mut u32,
-      iter: Option<I>,
-    }
-
-    impl<I> Iterator for EmptySequences<'_, I>
-    where
-      I: Iterator<Item = XWordTile>,
-    {
-      type Item = XWordEntry;
-
-      fn next(&mut self) -> Option<XWordEntry> {
-        let iter = self.iter.as_mut()?;
-        let number = *self.clue_number;
-
-        loop {
-          self.x += 1;
-          match iter.next() {
-            Some(XWordTile::Empty | XWordTile::Letter(_)) => break,
-            Some(XWordTile::Wall) => {}
-            None => return None,
-          }
-        }
-        *self.clue_number += 1;
-        let mut length = 1;
-        let pos = Pos { x: (self.x - 1) as i32, y: self.y as i32 };
-
-        loop {
-          self.x += 1;
-          match iter.next() {
-            Some(XWordTile::Empty | XWordTile::Letter(_)) => length += 1,
-            Some(XWordTile::Wall) => break,
-            None => {
-              self.iter = None;
-              break;
-            }
-          }
-        }
-
-        Some(XWordEntry { number, pos, length })
-      }
-    }
-
-    (0..board.height())
-      .scan(0, move |clue_number, y| {
-        let result: Vec<_> = EmptySequences {
-          x: 0,
-          y,
-          clue_number,
-          iter: Some(board.iter_row(y).cloned()),
-        }
-        .collect();
-        Some(result.into_iter())
-      })
-      .flatten()
-  }
-
   fn iterate_row_clues(&self) -> impl Iterator<Item = XWordEntry> + '_ {
-    Self::iterate_board_row_clues(self.board())
+    Crossword::iterate_row_clues(self.board())
   }
 
   fn iterate_col_clues(&self) -> impl Iterator<Item = XWordEntry> + '_ {
-    Self::iterate_board_row_clues(self.board().transpose())
-      .map(|entry| XWordEntry { pos: entry.pos.transpose(), ..entry })
+    Crossword::iterate_col_clues(self.board())
   }
 
   /// Map that tracks (clue_pos, idx in word) for each pos is in the row/col clue it resides.
@@ -272,20 +159,6 @@ trait XWordInternal {
       })
   }
 
-  fn clue_letter_positions_unbounded<'a>(
-    &self,
-    clue_pos: XWordCluePosition,
-  ) -> impl Iterator<Item = Pos> + 'a {
-    (0..).map(move |idx| {
-      clue_pos.pos
-        + if clue_pos.clue_number.is_row {
-          Diff { x: idx, y: 0 }
-        } else {
-          Diff { x: 0, y: idx }
-        }
-    })
-  }
-
   fn clue_letter_positions<'a>(
     &self,
     clue_pos: XWordCluePosition,
@@ -302,9 +175,7 @@ trait XWordInternal {
       )
     }));
 
-    self
-      .clue_letter_positions_unbounded(clue_pos)
-      .take(length as usize)
+    Crossword::clue_letter_positions_unbounded(clue_pos).take(length as usize)
   }
 
   fn find_empty_word_tile(&self, clue_position: XWordCluePosition, length: u32) -> Option<Pos> {

@@ -8,4 +8,4 @@ bitcode = { version = "0.6.4", features = ["derive"] }
 termgame = { path = "../termgame" }
 tokio = { version = "1.43.0", features = ["full"] }
 util = { path = "../util" }
-xword_gen = { path = "../xword_gen" }
+xword_dict = { path = "../xword_dict" }

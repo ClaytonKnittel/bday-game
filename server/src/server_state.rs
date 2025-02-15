@@ -1,7 +1,7 @@
 use std::{collections::HashMap, iter::once, sync::Arc};
 
 use common::{
-  crossword::Crossword,
+  crossword::{Crossword, XWordTile},
   msg::{write_message_to_wire, ClientMessage, ServerMessage},
   util::AsyncWriteT,
 };
@@ -10,7 +10,6 @@ use util::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
 };
-use xword_gen::xword::XWordTile;
 
 use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
 

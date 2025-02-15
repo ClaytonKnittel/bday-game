@@ -1,7 +1,7 @@
 use std::{collections::HashMap, iter, mem};
 
 use common::{
-  crossword::Crossword,
+  crossword::{Clue, Crossword, XWordTile},
   msg::ClientMessage,
   player_info::{PlayerColor, PlayerInfo},
 };
@@ -11,7 +11,6 @@ use util::{
   grid::{Grid, Gridlike},
   pos::{Diff, Pos},
 };
-use xword_gen::xword::XWordTile;
 
 const Z_IDX: i32 = 5;
 
@@ -109,9 +108,9 @@ impl CrosswordEntity {
     }
   }
 
-  pub fn from_grid(grid: Grid<XWordTile>, uid: u64) -> Self {
+  pub fn from_grid(grid: Grid<XWordTile>, uid: u64, clue_map: HashMap<(Pos, bool), Clue>) -> Self {
     Self {
-      crossword: Crossword::from_grid(grid),
+      crossword: Crossword::from_grid(grid, clue_map),
       view: CrosswordView::Expanded,
       to_right: true,
       actions: vec![],
@@ -184,12 +183,12 @@ impl CrosswordEntity {
     pos != self.player_info.player_pos()
       && self
         .crossword
-        .clue_map()
+        .clue_pos_map()
         .get(&(pos, self.to_right))
         .is_some_and(|row_id| {
           self
             .crossword
-            .clue_map()
+            .clue_pos_map()
             .get(&(self.player_info.player_pos(), self.to_right))
             .is_some_and(|player_row_id| row_id == player_row_id)
         })

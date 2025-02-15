@@ -263,7 +263,7 @@ dependencies = [
  "termgame",
  "tokio",
  "util",
- "xword_gen",
+ "xword_dict",
 ]
 
 [[package]]
@@ -1184,6 +1184,7 @@ name = "xword_gen"
 version = "0.1.0"
 dependencies = [
  "bitcode",
+ "common",
  "dlx",
  "googletest",
  "itertools",

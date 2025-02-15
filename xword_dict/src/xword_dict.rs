@@ -7,10 +7,10 @@ use regex::Regex;
 use util::error::{TermgameError, TermgameResult};
 
 #[derive(Encode, Decode, PartialEq, Eq, Hash)]
-struct DictEntry {
-  publisher: String,
-  publish_year: u16,
-  clue: String,
+pub struct DictEntry {
+  pub publisher: String,
+  pub publish_year: u16,
+  pub clue: String,
 }
 
 impl DictEntry {
@@ -96,6 +96,15 @@ impl XWordDict {
       })
       // Make the word occur many times so it will alaways be selected in top_n_words
       .or_default() += 100_000;
+  }
+
+  pub fn get_clue(&self, word: &str) -> impl Iterator<Item = &DictEntry> + '_ {
+    self
+      .dict
+      .get(word)
+      .into_iter()
+      .flat_map(|entry| entry.iter())
+      .map(|(entry, _)| entry)
   }
 
   pub fn top_n_words(&self, n: usize) -> Vec<&str> {

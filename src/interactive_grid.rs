@@ -4,6 +4,7 @@ use std::{
   iter,
 };
 
+use common::crossword::XWordTile;
 use itertools::Itertools;
 use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
@@ -12,7 +13,7 @@ use util::{
   pos::{Diff, Pos},
   union_find::UnionFind,
 };
-use xword_gen::xword::{XWord, XWordTile};
+use xword_gen::xword::XWord;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum Satisfaction {

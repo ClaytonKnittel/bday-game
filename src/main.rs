@@ -9,7 +9,7 @@ mod pc;
 mod run_game;
 
 use std::{
-  collections::HashSet,
+  collections::{HashMap, HashSet},
   fs::{self, File},
   io::Write,
   process::ExitCode,
@@ -17,7 +17,7 @@ use std::{
 
 use args::{Args, RunMode};
 use clap::Parser;
-use common::crossword::Crossword;
+use common::crossword::{Crossword, XWordTile};
 use crossword::CrosswordEntity;
 use interactive_grid::{InteractiveGrid, InteractiveGridMode};
 use pc::Pc;
@@ -25,7 +25,7 @@ use run_game::play_puzzle;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
+use xword_gen::xword::{XWord, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
 
@@ -182,9 +182,11 @@ fn show_dlx_iters() -> TermgameResult {
   let mut x_iter = xword_solver.stepwise_board_iter();
 
   let mut ev = EventLoop::new()?;
-  let xword_uid = ev
-    .scene()
-    .add_entity(Box::new(CrosswordEntity::from_grid(grid.clone(), 0)));
+  let xword_uid = ev.scene().add_entity(Box::new(CrosswordEntity::from_grid(
+    grid.clone(),
+    0,
+    HashMap::new(),
+  )));
 
   let mut done = false;
   let pc_uid = ev
@@ -198,7 +200,7 @@ fn show_dlx_iters() -> TermgameResult {
       if let Some(grid) = x_iter.next() {
         scene
           .entity_mut::<CrosswordEntity>(xword_uid)?
-          .swap_for(Crossword::from_grid(grid));
+          .swap_for(Crossword::from_grid(grid, HashMap::new()));
       } else {
         done = true;
       }

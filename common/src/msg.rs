@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use bitcode::{Decode, Encode};
 use tokio::io::AsyncReadExt;
 use util::{error::TermgameResult, pos::Pos};
-use xword_gen::xword::XWordTile;
 
-use crate::{crossword::CrosswordEncoding, player_info::PlayerInfo, util::AsyncWriteT};
+use crate::{
+  crossword::{CrosswordEncoding, XWordTile},
+  player_info::PlayerInfo,
+  util::AsyncWriteT,
+};
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ClientMessage {
