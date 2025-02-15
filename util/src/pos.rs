@@ -3,7 +3,9 @@ use std::{
   ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign},
 };
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+use bitcode::{Decode, Encode};
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode)]
 pub struct Pos {
   pub x: i32,
   pub y: i32,

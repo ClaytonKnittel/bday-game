@@ -3,11 +3,15 @@ use std::{collections::HashMap, iter::once, sync::Arc};
 use common::{
   crossword::Crossword,
   msg::{write_message_to_wire, ClientMessage, ServerMessage},
+  util::AsyncWriteT,
 };
-use tokio::{io::AsyncWriteExt, sync::Mutex};
-use util::error::{TermgameError, TermgameResult};
+use tokio::sync::Mutex;
+use util::{
+  error::{TermgameError, TermgameResult},
+  pos::Pos,
+};
 
-use crate::client_context::{ClientContext, LiveClient};
+use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
 
 enum Action {
   Respond(ServerMessage),
@@ -23,7 +27,7 @@ pub struct ServerState<W> {
 
 impl<W> ServerState<W>
 where
-  W: AsyncWriteExt + Unpin,
+  W: AsyncWriteT,
 {
   pub fn with_crossword(crossword: Crossword) -> Self {
     Self {
@@ -72,6 +76,38 @@ where
     Ok(())
   }
 
+  async fn to_authenticated_mut(
+    &mut self,
+    stream: &Arc<Mutex<W>>,
+    uid: u64,
+  ) -> TermgameResult<AuthenticatedLiveClient<'_, W>> {
+    if let Some(state) = self.clients.get_mut(&uid) {
+      if let Some(live_state) = state.as_live_mut() {
+        if let Some(auth_client) = live_state.to_authenticated_mut(&stream).await {
+          Ok(auth_client)
+        } else {
+          Err(TermgameError::Internal(format!("Cannot authenticate as client {uid}")).into())
+        }
+      } else {
+        Err(TermgameError::Internal(format!("Client {uid} is not live")).into())
+      }
+    } else {
+      Err(TermgameError::Internal(format!("No such client with uid {uid}")).into())
+    }
+  }
+
+  async fn to_authenticated_context_mut(
+    &mut self,
+    stream: &Arc<Mutex<W>>,
+    uid: u64,
+  ) -> TermgameResult<&mut ClientContext<W>> {
+    self.to_authenticated_mut(stream, uid).await?;
+    self
+      .clients
+      .get_mut(&uid)
+      .ok_or_else(|| TermgameError::Internal(format!("No such client with uid {uid}")).into())
+  }
+
   async fn new_connection(
     &mut self,
     stream: Arc<Mutex<W>>,
@@ -103,6 +139,19 @@ where
     })))
   }
 
+  async fn position_update(
+    &mut self,
+    stream: Arc<Mutex<W>>,
+    uid: u64,
+    pos: Pos,
+  ) -> TermgameResult<impl Iterator<Item = Action>> {
+    let context = self.to_authenticated_context_mut(&stream, uid).await?;
+    context.player_info_mut().pos = pos;
+    Ok(once(Action::Broadcast(
+      ServerMessage::PlayerPositionUpdate { uid, pos },
+    )))
+  }
+
   pub async fn respond_to_message(
     &mut self,
     stream: Arc<Mutex<W>>,
@@ -123,6 +172,9 @@ where
       }
       ClientMessage::ConnectToExisting { uid } => {
         execute!(self.connect_to_existing(stream.clone(), uid).await?)
+      }
+      ClientMessage::PositionUpdate { uid, pos } => {
+        execute!(self.position_update(stream.clone(), uid, pos).await?)
       }
     }
   }

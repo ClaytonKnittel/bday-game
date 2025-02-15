@@ -1,24 +1,25 @@
 use bitcode::{Decode, Encode};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use util::error::TermgameResult;
+use tokio::io::AsyncReadExt;
+use util::{error::TermgameResult, pos::Pos};
+
+use crate::util::AsyncWriteT;
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ClientMessage {
   NewConnection,
   ConnectToExisting { uid: u64 },
+  PositionUpdate { uid: u64, pos: Pos },
 }
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ServerMessage {
   NewConnection { uid: u64 },
   ConnectToExisting { success: bool },
+  PlayerPositionUpdate { uid: u64, pos: Pos },
   Ping,
 }
 
-pub async fn write_message_to_wire<T>(
-  stream: &mut (impl AsyncWriteExt + Unpin),
-  message: T,
-) -> TermgameResult
+pub async fn write_message_to_wire<T>(stream: &mut impl AsyncWriteT, message: T) -> TermgameResult
 where
   T: Encode,
 {

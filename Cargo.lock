@@ -260,6 +260,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "bitcode",
+ "termgame",
  "tokio",
  "util",
  "xword_gen",

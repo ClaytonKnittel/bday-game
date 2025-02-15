@@ -7,10 +7,10 @@ use common::{
   config::PORT,
   crossword::Crossword,
   msg::{read_message_from_wire, DecodeMessageResult},
+  util::AsyncWriteT,
 };
 use server_state::ServerState;
 use tokio::{
-  io::AsyncWriteExt,
   net::{tcp::OwnedWriteHalf, TcpListener, TcpStream},
   sync::Mutex,
   time::sleep,
@@ -32,7 +32,7 @@ async fn handle_connection(
 
 async fn cleanup_loop<W>(server_state: Arc<Mutex<ServerState<W>>>) -> TermgameResult
 where
-  W: AsyncWriteExt + Unpin,
+  W: AsyncWriteT,
 {
   loop {
     sleep(Duration::from_secs(5)).await;
