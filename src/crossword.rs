@@ -558,8 +558,7 @@ impl CrosswordEntity {
             x: row_clue.display_width().max(col_clue.display_width()) as i32,
             y: (row_clue.display_height() + col_clue.display_height()) as i32 - 1,
           };
-        let player_pos =
-          dimensions.screen_dim() - (self.player_screen_pos() - dimensions.camera_pos);
+        let player_pos = self.player_screen_pos() - dimensions.camera_pos;
 
         let draw_style = if player_pos.x + self.xscale() >= topleft_pos.x
           && player_pos.y + self.yscale() >= topleft_pos.y
