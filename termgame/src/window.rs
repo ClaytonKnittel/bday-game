@@ -73,7 +73,12 @@ impl<W: Write> Window<W> {
   }
 
   pub fn draw(&mut self, draw: Draw, pos: Pos) {
-    let pos = pos - self.camera_pos;
+    let pos = pos
+      - if draw.fixed_pos() {
+        Pos::zero()
+      } else {
+        self.camera_pos
+      };
     let (x, y) = (pos.x, pos.y);
     if 0 > x || x >= self.width() as i32 || 0 > y || y >= self.height() as i32 {
       return;

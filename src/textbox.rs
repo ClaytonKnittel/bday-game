@@ -3,17 +3,22 @@ use std::iter;
 use termgame::{draw::Draw, entity::Entity};
 use util::pos::Pos;
 
-const MAX_LINE_LEN: usize = 40;
 const Z_IDX: i32 = 50;
 
 pub struct TextBox {
   src: Pos,
   text: String,
+  line_len: u32,
+  fixed_width: bool,
 }
 
 impl TextBox {
-  pub fn new(src: Pos, text: String) -> Self {
-    Self { src, text }
+  pub fn new(src: Pos, text: String, line_len: u32) -> Self {
+    Self { src, text, line_len, fixed_width: false }
+  }
+
+  pub fn with_fixed_width(self) -> Self {
+    Self { fixed_width: true, ..self }
   }
 
   pub fn display_height(&self) -> u32 {
@@ -28,25 +33,20 @@ impl TextBox {
     let mut text = self.text.as_str();
     let mut lines = Vec::new();
     loop {
-      if text.chars().count() <= MAX_LINE_LEN {
+      if text.chars().count() <= self.line_len as usize {
         lines.push(text.to_string());
         return lines;
       }
-      let last_idx =
-        text
-          .chars()
-          .take(MAX_LINE_LEN)
-          .enumerate()
-          .fold(
-            MAX_LINE_LEN,
-            |last_idx, (idx, c)| {
-              if c == ' ' {
-                idx
-              } else {
-                last_idx
-              }
-            },
-          );
+      let last_idx = text.chars().take(self.line_len as usize).enumerate().fold(
+        self.line_len as usize,
+        |last_idx, (idx, c)| {
+          if c == ' ' {
+            idx
+          } else {
+            last_idx
+          }
+        },
+      );
       lines.push(text[..last_idx].to_string());
       text = &text[last_idx + 1..];
     }
@@ -64,10 +64,10 @@ impl Entity for TextBox {
     let lines = self.to_lines();
     let num_lines = lines.len() as i32;
     Box::new(
-      lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
+      self
+        .fixed_width
+        .then_some(self.line_len as usize)
+        .or_else(|| lines.iter().map(|line| line.chars().count()).max())
         .map(|max_line_len| {
           let max_line_len = max_line_len as i32;
           let x = self.src.x;

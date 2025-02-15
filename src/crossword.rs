@@ -17,6 +17,7 @@ use util::{
 use crate::textbox::TextBox;
 
 const Z_IDX: i32 = 5;
+const CLUE_LINE_LEN: u32 = 60;
 
 #[derive(Clone, Copy, Debug)]
 enum CrosswordView {
@@ -515,21 +516,24 @@ impl CrosswordEntity {
     })
   }
 
-  fn generate_clue(&self, is_row: bool) -> impl Iterator<Item = (Draw, Pos)> + '_ {
+  fn generate_clue(&self, is_row: bool, top_left: Pos) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     self
       .crossword
       .clue_for_pos(self.player_info.player_pos(), is_row)
       .map(|clue| {
         TextBox::new(
-          Pos { x: 10, y: 8 },
+          top_left,
           format!(
             "{} {}: {}",
             clue.clue_num,
             if is_row { "across" } else { "down" },
             clue.clue_txt
           ),
+          CLUE_LINE_LEN,
         )
+        .with_fixed_width()
         .iterate_tiles()
+        .map(|(draw, pos)| (draw.with_fixed_pos(), pos))
         .collect_vec()
       })
       .into_iter()
@@ -544,7 +548,7 @@ impl Entity for CrosswordEntity {
         CrosswordView::Expanded => Variant2::Opt1(self.generate_expanded_view()),
         CrosswordView::Compressed => Variant2::Opt2(self.generate_compressed_view()),
       }
-      .chain(self.generate_clue(true)),
+      .chain(self.generate_clue(true, Pos { x: 50, y: 20 })),
     )
   }
 

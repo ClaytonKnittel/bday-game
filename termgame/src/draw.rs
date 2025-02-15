@@ -11,6 +11,7 @@ pub struct Draw {
   italic: bool,
   bold: bool,
   underlined: bool,
+  fixed_pos: bool,
 }
 
 impl Draw {
@@ -23,6 +24,7 @@ impl Draw {
       italic: false,
       bold: false,
       underlined: false,
+      fixed_pos: false,
     }
   }
 
@@ -56,6 +58,14 @@ impl Draw {
 
   pub fn with_underline(self) -> Self {
     Self { underlined: true, ..self }
+  }
+
+  pub fn with_fixed_pos(self) -> Self {
+    Self { fixed_pos: true, ..self }
+  }
+
+  pub fn fixed_pos(&self) -> bool {
+    self.fixed_pos
   }
 }
 
@@ -102,6 +112,7 @@ impl PartialEq for Draw {
       && self.italic == other.italic
       && self.bold == other.bold
       && self.underlined == other.underlined
+      && self.fixed_pos == other.fixed_pos
       && match (self.fg_color, other.fg_color) {
         (Some(color::AnsiValue(c1)), Some(color::AnsiValue(c2))) => c1 == c2,
         (None, None) => true,
