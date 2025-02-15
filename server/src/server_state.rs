@@ -24,6 +24,7 @@ enum Action {
   Broadcast(ServerMessage),
 }
 
+#[allow(clippy::large_enum_variant)]
 enum State {
   Prompt,
   Crossword {

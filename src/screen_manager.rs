@@ -2,6 +2,7 @@ use termgame::entity::Entity;
 
 use crate::{crossword::CrosswordEntity, q_prompt::QPrompt};
 
+#[allow(clippy::large_enum_variant)]
 pub enum ScreenManager {
   Prompt(QPrompt),
   Crossword(CrosswordEntity),
