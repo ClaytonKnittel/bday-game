@@ -12,6 +12,6 @@ pub enum RunMode {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-  #[arg(long, default_value = "progress")]
+  #[arg(long, default_value = "play")]
   pub mode: RunMode,
 }
