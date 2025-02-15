@@ -83,7 +83,7 @@ where
   ) -> TermgameResult<AuthenticatedLiveClient<'_, W>> {
     if let Some(state) = self.clients.get_mut(&uid) {
       if let Some(live_state) = state.as_live_mut() {
-        if let Some(auth_client) = live_state.to_authenticated_mut(&stream).await {
+        if let Some(auth_client) = live_state.to_authenticated_mut().await {
           Ok(auth_client)
         } else {
           Err(TermgameError::Internal(format!("Cannot authenticate as client {uid}")).into())

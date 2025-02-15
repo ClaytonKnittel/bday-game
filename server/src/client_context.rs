@@ -93,15 +93,9 @@ where
     self.write_message(ServerMessage::Ping).await.is_ok()
   }
 
-  pub async fn to_authenticated_mut(
-    &mut self,
-    stream: &Arc<Mutex<W>>,
-  ) -> Option<AuthenticatedLiveClient<'_, W>> {
-    let matches_expected = {
-      let p1: *const _ = &(*self.stream.lock().await);
-      let p2: *const _ = &(*stream.lock().await);
-      p1 == p2
-    };
+  pub async fn to_authenticated_mut(&mut self) -> Option<AuthenticatedLiveClient<'_, W>> {
+    // TODO: authentication?
+    let matches_expected = { true };
     if matches_expected {
       Some(AuthenticatedLiveClient::new(self))
     } else {
