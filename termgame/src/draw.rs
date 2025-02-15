@@ -19,6 +19,7 @@ pub struct Draw {
   italic: bool,
   bold: bool,
   underlined: bool,
+  crossed_out: bool,
   draw_style: DrawStyle,
 }
 
@@ -32,6 +33,7 @@ impl Draw {
       italic: false,
       bold: false,
       underlined: false,
+      crossed_out: false,
       draw_style: DrawStyle::Relative,
     }
   }
@@ -66,6 +68,10 @@ impl Draw {
 
   pub fn with_underline(self) -> Self {
     Self { underlined: true, ..self }
+  }
+
+  pub fn with_crossed_out(self) -> Self {
+    Self { crossed_out: true, ..self }
   }
 
   pub fn with_draw_style(self, draw_style: DrawStyle) -> Self {
@@ -104,9 +110,14 @@ impl Display for Draw {
     } else {
       "".to_owned()
     };
+    let crossed_out_str = if self.crossed_out {
+      style::CrossedOut.to_string()
+    } else {
+      "".to_owned()
+    };
     write!(
       f,
-      "{}{italic_str}{bold_str}{underline_str}{fg_str}{bg_str}{}",
+      "{}{italic_str}{bold_str}{underline_str}{crossed_out_str}{fg_str}{bg_str}{}",
       style::Reset,
       self.item
     )
@@ -120,6 +131,7 @@ impl PartialEq for Draw {
       && self.italic == other.italic
       && self.bold == other.bold
       && self.underlined == other.underlined
+      && self.crossed_out == other.crossed_out
       && self.draw_style == other.draw_style
       && match (self.fg_color, other.fg_color) {
         (Some(color::AnsiValue(c1)), Some(color::AnsiValue(c2))) => c1 == c2,

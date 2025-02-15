@@ -1,4 +1,7 @@
-use std::{collections::HashMap, iter, mem};
+use std::{
+  collections::{HashMap, HashSet},
+  iter, mem,
+};
 
 use common::{
   crossword::{Clue, Crossword, XWordTile},
@@ -98,6 +101,7 @@ pub struct CrosswordEntity {
   to_right: bool,
   actions: Vec<ClientMessage>,
   player_info: PlayerInfoManager,
+  wrong_answers: HashSet<Pos>,
 }
 
 impl CrosswordEntity {
@@ -126,6 +130,7 @@ impl CrosswordEntity {
       to_right: true,
       actions: vec![],
       player_info: PlayerInfoManager::new(uid),
+      wrong_answers: HashSet::new(),
     }
   }
 
@@ -142,6 +147,7 @@ impl CrosswordEntity {
       to_right: true,
       actions: vec![],
       player_info: player_info_manager,
+      wrong_answers: HashSet::new(),
     }
   }
 
@@ -186,8 +192,17 @@ impl CrosswordEntity {
     actions
   }
 
+  pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {
+    self.crossword.tile(pos)
+  }
+
   pub fn tile_mut(&mut self, pos: Pos) -> TermgameResult<&mut XWordTile> {
+    self.wrong_answers.remove(&pos);
     self.crossword.tile_mut(pos)
+  }
+
+  pub fn mark_wrong_answer(&mut self, pos: Pos) {
+    self.wrong_answers.insert(pos);
   }
 
   fn should_highlight(&self, pos: Pos) -> bool {
@@ -409,7 +424,11 @@ impl CrosswordEntity {
                   let mut draw = match letter {
                     XWordTile::Letter(c) => {
                       if center {
-                        Draw::new(Self::char_display(c))
+                        let mut draw = Draw::new(Self::char_display(c));
+                        if self.wrong_answers.contains(&grid_pos) {
+                          draw = draw.with_crossed_out();
+                        }
+                        draw
                       } else {
                         Draw::new(' ')
                       }

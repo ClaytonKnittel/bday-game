@@ -1,4 +1,8 @@
-use std::{collections::HashMap, iter::once, sync::Arc};
+use std::{
+  collections::HashMap,
+  iter::{empty, once},
+  sync::Arc,
+};
 
 use common::{
   crossword::{Crossword, XWordTile},
@@ -9,6 +13,7 @@ use tokio::sync::Mutex;
 use util::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
+  variant::Variant2,
 };
 
 use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
@@ -19,7 +24,8 @@ enum Action {
 }
 
 pub struct ServerState<W> {
-  crossword: Crossword,
+  crossword_answers: Crossword,
+  scratch: Crossword,
   clients: HashMap<u64, ClientContext<W>>,
   next_uid: u64,
 }
@@ -28,12 +34,17 @@ impl<W> ServerState<W>
 where
   W: AsyncWriteT,
 {
-  pub fn with_crossword(crossword: Crossword) -> Self {
+  pub fn with_crossword(crossword_answers: Crossword, scratch: Crossword) -> Self {
     Self {
-      crossword,
+      crossword_answers,
+      scratch,
       clients: HashMap::new(),
       next_uid: 0,
     }
+  }
+
+  pub fn scratch(&self) -> &Crossword {
+    &self.scratch
   }
 
   fn assign_new_uid(&mut self) -> u64 {
@@ -163,7 +174,7 @@ where
       return Err(TermgameError::Internal("Cannot place wall tiles".to_owned()).into());
     }
 
-    let xword_tile = self.crossword.tile_mut(pos)?;
+    let xword_tile = self.scratch.tile_mut(pos)?;
     match xword_tile {
       XWordTile::Empty | XWordTile::Letter(_) => {
         *xword_tile = tile.clone();
@@ -178,9 +189,24 @@ where
     }
   }
 
+  async fn check_tile(&mut self, pos: Pos) -> TermgameResult<impl Iterator<Item = Action>> {
+    Ok(if let Ok(tile) = self.crossword_answers.tile(pos) {
+      let response = ServerMessage::CheckTile { pos, tile: tile.clone() };
+      Variant2::Opt1(
+        [
+          Action::Respond(response.clone()),
+          Action::Broadcast(response),
+        ]
+        .into_iter(),
+      )
+    } else {
+      Variant2::Opt2(empty())
+    })
+  }
+
   async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
     Ok(once(Action::Respond(ServerMessage::FullRefresh {
-      crossword: self.crossword.clone().into(),
+      crossword: self.scratch.clone().into(),
       player_info: self
         .all_connections()
         .filter(|(_, connection)| connection.is_live())
@@ -215,6 +241,9 @@ where
       }
       ClientMessage::TileUpdate { pos, tile } => {
         execute!(self.tile_update(pos, tile).await?)
+      }
+      ClientMessage::CheckTile { pos } => {
+        execute!(self.check_tile(pos).await?)
       }
       ClientMessage::FullRefresh => {
         execute!(self.full_refresh().await?)

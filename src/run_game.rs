@@ -133,6 +133,13 @@ async fn play(client: &mut Client, uid: u64) -> TermgameResult {
             *xword_tile = tile;
           }
         }
+        ServerMessage::CheckTile { pos, tile } => {
+          if let Ok(xword_tile) = xword.tile(pos) {
+            if *xword_tile != tile {
+              xword.mark_wrong_answer(pos);
+            }
+          }
+        }
         ServerMessage::FullRefresh { crossword, player_info } => {
           xword.swap_for(crossword.into());
           xword.refresh_player_info(player_info);

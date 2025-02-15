@@ -218,6 +218,14 @@ impl Crossword {
     Ok(Self::from_grid(grid, clue_map))
   }
 
+  pub fn clone_clearing_tiles(&self) -> Crossword {
+    let grid = self.grid.map(|tile| match tile {
+      XWordTile::Empty | XWordTile::Letter(_) => XWordTile::Empty,
+      XWordTile::Wall => XWordTile::Wall,
+    });
+    Self::from_grid(grid, self.clue_map.clone())
+  }
+
   pub fn grid(&self) -> &Grid<XWordTile> {
     &self.grid
   }
@@ -232,6 +240,10 @@ impl Crossword {
 
   pub fn clue_pos_map(&self) -> &HashMap<(Pos, bool), Pos> {
     &self.clue_pos_map
+  }
+
+  pub fn clue_map(&self) -> &HashMap<(Pos, bool), Clue> {
+    &self.clue_map
   }
 
   pub fn clue_for_pos(&self, pos: Pos, is_row: bool) -> Option<Clue> {

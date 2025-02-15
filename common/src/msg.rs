@@ -16,6 +16,7 @@ pub enum ClientMessage {
   ConnectToExisting { uid: u64 },
   PositionUpdate { uid: u64, pos: Pos },
   TileUpdate { pos: Pos, tile: XWordTile },
+  CheckTile { pos: Pos },
   FullRefresh,
 }
 
@@ -32,6 +33,10 @@ pub enum ServerMessage {
     pos: Pos,
   },
   TileUpdate {
+    pos: Pos,
+    tile: XWordTile,
+  },
+  CheckTile {
     pos: Pos,
     tile: XWordTile,
   },
