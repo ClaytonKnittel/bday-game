@@ -4,7 +4,7 @@ use std::{
 };
 
 use common::{
-  crossword::{Clue, Crossword, XWordTile},
+  crossword::{Clue, Crossword, XWordClueNumber, XWordCluePosition, XWordTile},
   msg::ClientMessage,
   player_info::{PlayerColor, PlayerInfo},
 };
@@ -203,6 +203,35 @@ impl CrosswordEntity {
 
   pub fn mark_wrong_answer(&mut self, pos: Pos) {
     self.wrong_answers.insert(pos);
+  }
+
+  fn tiles_in_word(&self, pos: Pos, is_row: bool) -> impl Iterator<Item = Pos> + '_ {
+    self
+      .crossword
+      .clue_pos_map()
+      .get(&(pos, is_row))
+      .and_then(|pos| {
+        self
+          .crossword
+          .clue_map()
+          .get(&(*pos, is_row))
+          .map(|clue| (pos, clue))
+      })
+      .map(|(&pos, clue)| {
+        Crossword::clue_letter_positions_unbounded(XWordCluePosition {
+          pos,
+          clue_number: XWordClueNumber { number: clue.clue_num, is_row },
+        })
+        .take_while(|&pos| {
+          self
+            .crossword
+            .grid()
+            .get(pos)
+            .is_some_and(|tile| !matches!(tile, XWordTile::Wall))
+        })
+      })
+      .into_iter()
+      .flatten()
   }
 
   fn should_highlight(&self, pos: Pos) -> bool {
@@ -672,6 +701,19 @@ impl Entity for CrosswordEntity {
           }
           XWordTile::Wall => {}
         }
+      }
+      Key::Char('=') => {
+        self
+          .actions
+          .push(ClientMessage::CheckTile { pos: player_pos });
+      }
+      Key::Char('-') => {
+        self.actions.extend(
+          self
+            .tiles_in_word(player_pos, self.to_right)
+            .map(|pos| ClientMessage::CheckTile { pos })
+            .collect_vec(),
+        );
       }
       Key::Char('/') => {
         self.view = match self.view {
