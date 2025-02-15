@@ -1,11 +1,12 @@
-use std::fs;
+use std::collections::HashMap;
 
-use common::msg::{ClientMessage, ServerMessage};
-use termgame::event_loop::EventLoop;
-use util::{
-  bitcode,
-  error::{TermgameError, TermgameResult},
+use common::{
+  crossword::Crossword,
+  msg::{ClientMessage, ServerMessage},
+  player_info::PlayerInfo,
 };
+use termgame::event_loop::EventLoop;
+use util::error::{TermgameError, TermgameResult};
 
 use crate::{client::Client, crossword::CrosswordEntity};
 
@@ -24,15 +25,38 @@ async fn wait_for_uid(client: &mut Client) -> TermgameResult<u64> {
   }
 }
 
+async fn wait_for_refresh(
+  client: &mut Client,
+) -> TermgameResult<(Crossword, HashMap<u64, PlayerInfo>)> {
+  loop {
+    if let Some(message) = client.recv_server_message().await {
+      match message {
+        ServerMessage::FullRefresh { crossword, player_info } => {
+          return Ok((crossword.into(), player_info))
+        }
+        _ => continue,
+      }
+    } else {
+      return Err(TermgameError::Internal("Connection closed".to_owned()).into());
+    }
+  }
+}
+
 pub async fn play_puzzle() -> TermgameResult {
   let mut client = Client::new().await?;
   let uid = wait_for_uid(&mut client).await?;
 
+  client.send_message(ClientMessage::FullRefresh).await?;
+  let (crossword, player_info) = wait_for_refresh(&mut client).await?;
+
   let mut ev = EventLoop::new()?;
-  let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   let xword_uid = ev
     .scene()
-    .add_entity(Box::new(CrosswordEntity::from_grid(grid, uid)));
+    .add_entity(Box::new(CrosswordEntity::with_crossword_and_player_info(
+      crossword,
+      player_info,
+      uid,
+    )));
 
   let mut ev_iter = ev.async_event_loop();
   for t in 0usize.. {

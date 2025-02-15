@@ -118,6 +118,22 @@ impl CrosswordEntity {
     }
   }
 
+  pub fn with_crossword_and_player_info(
+    crossword: Crossword,
+    player_info: HashMap<u64, PlayerInfo>,
+    uid: u64,
+  ) -> Self {
+    let mut player_info_manager = PlayerInfoManager::new(uid);
+    player_info_manager.refresh(player_info);
+    Self {
+      crossword,
+      view: CrosswordView::Expanded,
+      to_right: true,
+      actions: vec![],
+      player_info: player_info_manager,
+    }
+  }
+
   pub fn swap_for(&mut self, xword: Crossword) {
     self.crossword = xword;
   }
