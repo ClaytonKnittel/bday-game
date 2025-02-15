@@ -1,6 +1,9 @@
 use std::{collections::HashMap, iter::once, sync::Arc};
 
-use common::msg::{write_message_to_wire, ClientMessage, ServerMessage};
+use common::{
+  crossword::Crossword,
+  msg::{write_message_to_wire, ClientMessage, ServerMessage},
+};
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 use util::error::{TermgameError, TermgameResult};
 
@@ -13,6 +16,7 @@ enum Action {
 }
 
 pub struct ServerState<W> {
+  crossword: Crossword,
   clients: HashMap<u64, ClientContext<W>>,
   next_uid: u64,
 }
@@ -21,8 +25,12 @@ impl<W> ServerState<W>
 where
   W: AsyncWriteExt + Unpin,
 {
-  pub fn new() -> Self {
-    Self { clients: HashMap::new(), next_uid: 0 }
+  pub fn with_crossword(crossword: Crossword) -> Self {
+    Self {
+      crossword,
+      clients: HashMap::new(),
+      next_uid: 0,
+    }
   }
 
   fn assign_new_uid(&mut self) -> u64 {

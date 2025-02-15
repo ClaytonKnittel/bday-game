@@ -13,6 +13,14 @@ pub struct Crossword {
 }
 
 impl Crossword {
+  pub fn encode(&self) -> Vec<u8> {
+    bitcode::encode(self.grid())
+  }
+
+  pub fn decode(bytes: &[u8]) -> TermgameResult<Self> {
+    Ok(Self::from_grid(bitcode::decode(bytes)?))
+  }
+
   fn build_clue_map(grid: &Grid<XWordTile>) -> HashMap<(Pos, bool), Pos> {
     grid
       .positions()
