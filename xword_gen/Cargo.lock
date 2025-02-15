@@ -149,6 +149,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "bitcode",
+ "itertools",
  "termgame",
  "tokio",
  "util",

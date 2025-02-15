@@ -14,4 +14,7 @@ pub enum RunMode {
 pub struct Args {
   #[arg(long, default_value = "play")]
   pub mode: RunMode,
+
+  #[arg(long)]
+  pub admin: bool,
 }

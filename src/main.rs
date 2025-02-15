@@ -229,7 +229,7 @@ async fn run() -> TermgameResult {
   match args.mode {
     RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::DisjointRegions),
     RunMode::Progress => show_dlx_iters(),
-    RunMode::Play => play_puzzle().await,
+    RunMode::Play => play_puzzle(args.admin).await,
   }
 }
 

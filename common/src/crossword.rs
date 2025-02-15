@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use bitcode::{Decode, Encode};
+use itertools::Itertools;
 use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
@@ -59,7 +60,7 @@ pub struct XWordEntry {
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Clue {
-  pub clue_txt: String,
+  pub clue_entries: Vec<String>,
   pub clue_num: u32,
 }
 
@@ -201,21 +202,24 @@ impl Crossword {
           ))),
         })?;
 
-        let mut clue_entry = dictionary.get_clue(&word);
-        let clue_entry = clue_entry
-          .next()
-          .ok_or_else(|| TermgameError::Internal(format!("No clue found for word {word}")))?;
+        let clue_entry = dictionary.get_clue(&word);
+        let clue_entries = clue_entry.map(|entry| entry.clue.clone()).collect_vec();
 
         Ok((
           (clue.pos, is_row),
-          Clue {
-            clue_txt: clue_entry.clue.clone(),
-            clue_num: clue.number,
-          },
+          Clue { clue_entries, clue_num: clue.number },
         ))
       })
       .collect::<TermgameResult<_>>()?;
     Ok(Self::from_grid(grid, clue_map))
+  }
+
+  pub fn clone_clearing_tiles(&self) -> Crossword {
+    let grid = self.grid.map(|tile| match tile {
+      XWordTile::Empty | XWordTile::Letter(_) => XWordTile::Empty,
+      XWordTile::Wall => XWordTile::Wall,
+    });
+    Self::from_grid(grid, self.clue_map.clone())
   }
 
   pub fn grid(&self) -> &Grid<XWordTile> {
@@ -234,12 +238,22 @@ impl Crossword {
     &self.clue_pos_map
   }
 
-  pub fn clue_for_pos(&self, pos: Pos, is_row: bool) -> Option<Clue> {
+  pub fn clue_map(&self) -> &HashMap<(Pos, bool), Clue> {
+    &self.clue_map
+  }
+
+  pub fn clue_for_pos(&self, pos: Pos, is_row: bool) -> Option<&Clue> {
     self
       .clue_pos_map
       .get(&(pos, is_row))
       .and_then(|pos| self.clue_map.get(&(*pos, is_row)))
-      .cloned()
+  }
+
+  pub fn clue_for_pos_mut(&mut self, pos: Pos, is_row: bool) -> Option<&mut Clue> {
+    self
+      .clue_pos_map
+      .get_mut(&(pos, is_row))
+      .and_then(|pos| self.clue_map.get_mut(&(*pos, is_row)))
   }
 
   pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {

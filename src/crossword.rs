@@ -1,7 +1,10 @@
-use std::{collections::HashMap, iter, mem};
+use std::{
+  collections::{HashMap, HashSet},
+  iter, mem,
+};
 
 use common::{
-  crossword::{Clue, Crossword, XWordTile},
+  crossword::{Clue, Crossword, XWordClueNumber, XWordCluePosition, XWordTile},
   msg::ClientMessage,
   player_info::{PlayerColor, PlayerInfo},
 };
@@ -98,6 +101,7 @@ pub struct CrosswordEntity {
   to_right: bool,
   actions: Vec<ClientMessage>,
   player_info: PlayerInfoManager,
+  wrong_answers: HashSet<Pos>,
 }
 
 impl CrosswordEntity {
@@ -126,6 +130,7 @@ impl CrosswordEntity {
       to_right: true,
       actions: vec![],
       player_info: PlayerInfoManager::new(uid),
+      wrong_answers: HashSet::new(),
     }
   }
 
@@ -142,6 +147,7 @@ impl CrosswordEntity {
       to_right: true,
       actions: vec![],
       player_info: player_info_manager,
+      wrong_answers: HashSet::new(),
     }
   }
 
@@ -186,8 +192,46 @@ impl CrosswordEntity {
     actions
   }
 
+  pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {
+    self.crossword.tile(pos)
+  }
+
   pub fn tile_mut(&mut self, pos: Pos) -> TermgameResult<&mut XWordTile> {
+    self.wrong_answers.remove(&pos);
     self.crossword.tile_mut(pos)
+  }
+
+  pub fn mark_wrong_answer(&mut self, pos: Pos) {
+    self.wrong_answers.insert(pos);
+  }
+
+  fn tiles_in_word(&self, pos: Pos, is_row: bool) -> impl Iterator<Item = Pos> + '_ {
+    self
+      .crossword
+      .clue_pos_map()
+      .get(&(pos, is_row))
+      .and_then(|pos| {
+        self
+          .crossword
+          .clue_map()
+          .get(&(*pos, is_row))
+          .map(|clue| (pos, clue))
+      })
+      .map(|(&pos, clue)| {
+        Crossword::clue_letter_positions_unbounded(XWordCluePosition {
+          pos,
+          clue_number: XWordClueNumber { number: clue.clue_num, is_row },
+        })
+        .take_while(|&pos| {
+          self
+            .crossword
+            .grid()
+            .get(pos)
+            .is_some_and(|tile| !matches!(tile, XWordTile::Wall))
+        })
+      })
+      .into_iter()
+      .flatten()
   }
 
   fn should_highlight(&self, pos: Pos) -> bool {
@@ -409,7 +453,11 @@ impl CrosswordEntity {
                   let mut draw = match letter {
                     XWordTile::Letter(c) => {
                       if center {
-                        Draw::new(Self::char_display(c))
+                        let mut draw = Draw::new(Self::char_display(c));
+                        if self.wrong_answers.contains(&grid_pos) {
+                          draw = draw.with_crossed_out();
+                        }
+                        draw
                       } else {
                         Draw::new(' ')
                       }
@@ -538,7 +586,11 @@ impl CrosswordEntity {
       .map(|(row_clue, col_clue)| {
         let mut row_clue = TextBox::new(
           Pos::zero(),
-          format!("{} across: {}", row_clue.clue_num, row_clue.clue_txt),
+          format!(
+            "{} across: {}",
+            row_clue.clue_num,
+            row_clue.clue_entries.first().unwrap_or(&String::new())
+          ),
           CLUE_LINE_LEN,
         )
         .with_fixed_width();
@@ -548,7 +600,11 @@ impl CrosswordEntity {
             x: 0,
             y: -(row_clue.display_height() as i32 - 1),
           },
-          format!("{} down: {}", col_clue.clue_num, col_clue.clue_txt),
+          format!(
+            "{} down: {}",
+            col_clue.clue_num,
+            col_clue.clue_entries.first().unwrap_or(&String::new())
+          ),
           CLUE_LINE_LEN,
         )
         .with_fixed_width();
@@ -653,6 +709,24 @@ impl Entity for CrosswordEntity {
           }
           XWordTile::Wall => {}
         }
+      }
+      Key::Char('=') => {
+        self
+          .actions
+          .push(ClientMessage::CheckTile { pos: player_pos });
+      }
+      Key::Char('-') => {
+        self.actions.extend(
+          self
+            .tiles_in_word(player_pos, self.to_right)
+            .map(|pos| ClientMessage::CheckTile { pos })
+            .collect_vec(),
+        );
+      }
+      Key::Char('`') => {
+        self
+          .actions
+          .push(ClientMessage::CycleClue { pos: player_pos, is_row: self.to_right });
       }
       Key::Char('/') => {
         self.view = match self.view {
