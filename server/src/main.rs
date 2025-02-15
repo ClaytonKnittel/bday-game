@@ -9,18 +9,20 @@ use common::{
 };
 use server_state::ServerState;
 use tokio::{
-  net::{TcpListener, TcpStream},
+  net::{tcp::OwnedWriteHalf, TcpListener, TcpStream},
   sync::Mutex,
 };
 use util::error::TermgameResult;
 
 async fn handle_connection(
-  mut stream: TcpStream,
-  state: Arc<Mutex<ServerState>>,
+  stream: TcpStream,
+  state: Arc<Mutex<ServerState<OwnedWriteHalf>>>,
 ) -> TermgameResult {
-  while let DecodeMessageResult::Message(message) = read_message_from_wire(&mut stream).await? {
+  let (mut rstream, wstream) = stream.into_split();
+  let wstream = Arc::new(Mutex::new(wstream));
+  while let DecodeMessageResult::Message(message) = read_message_from_wire(&mut rstream).await? {
     let mut state = state.lock().await;
-    state.respond_to_message(&mut stream, message).await?;
+    state.respond_to_message(wstream.clone(), message).await?;
   }
   Ok(())
 }

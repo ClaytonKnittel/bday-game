@@ -2,13 +2,13 @@ use bitcode::{Decode, Encode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use util::error::TermgameResult;
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub enum ClientMessage {
   NewConnection,
   ConnectToExisting { uid: u64 },
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub enum ServerMessage {
   NewConnection { uid: u64 },
   ConnectToExisting,
