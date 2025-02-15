@@ -1,7 +1,7 @@
 mod client_context;
 mod server_state;
 
-use std::{fs, process::ExitCode, sync::Arc, time::Duration};
+use std::{process::ExitCode, sync::Arc, time::Duration};
 
 use common::{
   config::PORT,
@@ -11,6 +11,7 @@ use common::{
 };
 use server_state::ServerState;
 use tokio::{
+  fs,
   net::{tcp::OwnedWriteHalf, TcpListener, TcpStream},
   sync::Mutex,
   time::sleep,
@@ -45,7 +46,9 @@ async fn run_server() -> TermgameResult {
   let listener = TcpListener::bind(addr).await?;
 
   // TODO use as default if no state found.
-  let crossword = Crossword::from_grid(bitcode::decode(&fs::read("../xword_gen/crossword.bin")?)?);
+  let crossword = Crossword::from_grid(bitcode::decode(
+    &fs::read("../xword_gen/crossword.bin").await?,
+  )?);
   let server_state = Arc::new(Mutex::new(ServerState::with_crossword(crossword)));
 
   {

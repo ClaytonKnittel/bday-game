@@ -41,10 +41,11 @@ impl PlayerInfoManager {
     }
   }
 
-  fn refresh(&mut self, mut player_info: HashMap<u64, PlayerInfo>) {
+  fn refresh(&mut self, mut player_info: HashMap<u64, PlayerInfo>, overwrite_pos: bool) {
     if let Some(mut player_info) = player_info.remove(&self.uid) {
-      // Don't overwrite pos.
-      player_info.pos = self.player_info.pos;
+      if !overwrite_pos {
+        player_info.pos = self.player_info.pos;
+      }
       self.player_info = player_info;
     }
     self.other_player_info = player_info;
@@ -124,7 +125,7 @@ impl CrosswordEntity {
     uid: u64,
   ) -> Self {
     let mut player_info_manager = PlayerInfoManager::new(uid);
-    player_info_manager.refresh(player_info);
+    player_info_manager.refresh(player_info, true);
     Self {
       crossword,
       view: CrosswordView::Expanded,
@@ -143,7 +144,7 @@ impl CrosswordEntity {
   }
 
   pub fn refresh_player_info(&mut self, player_info: HashMap<u64, PlayerInfo>) {
-    self.player_info.refresh(player_info);
+    self.player_info.refresh(player_info, false);
   }
 
   pub fn width(&self) -> u32 {

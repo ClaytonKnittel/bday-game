@@ -6,14 +6,67 @@ use common::{
   player_info::PlayerInfo,
 };
 use termgame::event_loop::EventLoop;
-use util::error::{TermgameError, TermgameResult};
+use tokio::{
+  fs::{self, File},
+  io::AsyncWriteExt,
+};
+use util::{
+  bitcode,
+  error::{TermgameError, TermgameResult},
+};
 
 use crate::{client::Client, crossword::CrosswordEntity};
 
 const SYNC_PERIOD: usize = 5 * 50;
 
-async fn wait_for_uid(client: &mut Client) -> TermgameResult<u64> {
+const UID_FILE: &str = "./uid.bin";
+
+async fn read_uid() -> TermgameResult<Option<u64>> {
+  if !fs::try_exists(UID_FILE).await? {
+    return Ok(None);
+  }
+
+  let uid_file = fs::read(UID_FILE).await;
+  let uid_contents = match uid_file {
+    Ok(uid) => uid,
+    Err(err) => {
+      println!("err: {err:?}");
+      return Err(err.into());
+    }
+  };
+
+  Ok(Some(bitcode::decode(&uid_contents)?))
+}
+
+async fn write_uid(uid: u64) -> TermgameResult {
+  let result = bitcode::encode(&uid);
+  let mut file = File::create(UID_FILE).await?;
+  file.write_all(&result).await?;
+  Ok(())
+}
+
+async fn load_player_info(client: &mut Client) -> TermgameResult<u64> {
+  if let Some(uid) = read_uid().await? {
+    client
+      .send_message(ClientMessage::ConnectToExisting { uid })
+      .await?;
+
+    loop {
+      if let Some(message) = client.recv_server_message().await {
+        match message {
+          ServerMessage::ConnectToExisting { success: true } => return Ok(uid),
+          ServerMessage::ConnectToExisting { success: false } => break,
+          _ => continue,
+        }
+      } else {
+        return Err(TermgameError::Internal("Connection closed".to_owned()).into());
+      }
+    }
+  }
+
   loop {
+    client.send_message(ClientMessage::NewConnection).await?;
+
     if let Some(message) = client.recv_server_message().await {
       match message {
         ServerMessage::NewConnection { uid } => return Ok(uid),
@@ -42,12 +95,9 @@ async fn wait_for_refresh(
   }
 }
 
-pub async fn play_puzzle() -> TermgameResult {
-  let mut client = Client::new().await?;
-  let uid = wait_for_uid(&mut client).await?;
-
+async fn play(client: &mut Client, uid: u64) -> TermgameResult {
   client.send_message(ClientMessage::FullRefresh).await?;
-  let (crossword, player_info) = wait_for_refresh(&mut client).await?;
+  let (crossword, player_info) = wait_for_refresh(client).await?;
 
   let mut ev = EventLoop::new()?;
   let xword_uid = ev
@@ -111,4 +161,14 @@ pub async fn play_puzzle() -> TermgameResult {
   }
 
   Ok(())
+}
+
+pub async fn play_puzzle() -> TermgameResult {
+  let mut client = Client::new().await?;
+  let uid = load_player_info(&mut client).await?;
+
+  let result = play(&mut client, uid).await;
+
+  let uid_write_result = write_uid(uid).await;
+  result.and(uid_write_result)
 }

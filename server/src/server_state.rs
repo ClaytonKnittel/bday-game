@@ -130,9 +130,12 @@ where
     uid: u64,
   ) -> TermgameResult<impl Iterator<Item = Action>> {
     let success = if let Some(state) = self.clients.get_mut(&uid) {
-      state.make_live(stream)
+      state.make_live(stream).ok_or_else(|| {
+        TermgameError::Internal(format!("Trying to connect to live connection on {uid}"))
+      })?;
+      true
     } else {
-      return Err(TermgameError::Internal(format!("No such client with uid {uid}")).into());
+      false
     };
 
     Ok(once(Action::Respond(ServerMessage::ConnectToExisting {

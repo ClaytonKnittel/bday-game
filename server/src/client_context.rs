@@ -54,12 +54,12 @@ where
     }
   }
 
-  pub fn make_live(&mut self, stream: Arc<Mutex<W>>) -> bool {
+  pub fn make_live(&mut self, stream: Arc<Mutex<W>>) -> Option<&mut LiveClient<W>> {
     match self.state {
-      ClientState::Live(_) => false,
+      ClientState::Live(_) => None,
       ClientState::Dead => {
         self.state = ClientState::Live(LiveClient::new(stream));
-        true
+        self.as_live_mut()
       }
     }
   }
