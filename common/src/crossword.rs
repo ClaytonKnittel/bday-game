@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use bitcode::{Decode, Encode};
+use itertools::Itertools;
 use util::{
   error::{TermgameError, TermgameResult},
   grid::{Grid, Gridlike, MutGridlike},
@@ -59,7 +60,7 @@ pub struct XWordEntry {
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Clue {
-  pub clue_txt: String,
+  pub clue_entries: Vec<String>,
   pub clue_num: u32,
 }
 
@@ -201,17 +202,12 @@ impl Crossword {
           ))),
         })?;
 
-        let mut clue_entry = dictionary.get_clue(&word);
-        let clue_entry = clue_entry
-          .next()
-          .ok_or_else(|| TermgameError::Internal(format!("No clue found for word {word}")))?;
+        let clue_entry = dictionary.get_clue(&word);
+        let clue_entries = clue_entry.map(|entry| entry.clue.clone()).collect_vec();
 
         Ok((
           (clue.pos, is_row),
-          Clue {
-            clue_txt: clue_entry.clue.clone(),
-            clue_num: clue.number,
-          },
+          Clue { clue_entries, clue_num: clue.number },
         ))
       })
       .collect::<TermgameResult<_>>()?;

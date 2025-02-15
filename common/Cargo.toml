@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitcode = { version = "0.6.4", features = ["derive"] }
+itertools = "0.14.0"
 termgame = { path = "../termgame" }
 tokio = { version = "1.43.0", features = ["full"] }
 util = { path = "../util" }

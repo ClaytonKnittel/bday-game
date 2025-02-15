@@ -586,7 +586,11 @@ impl CrosswordEntity {
       .map(|(row_clue, col_clue)| {
         let mut row_clue = TextBox::new(
           Pos::zero(),
-          format!("{} across: {}", row_clue.clue_num, row_clue.clue_txt),
+          format!(
+            "{} across: {}",
+            row_clue.clue_num,
+            row_clue.clue_entries.first().unwrap_or(&String::new())
+          ),
           CLUE_LINE_LEN,
         )
         .with_fixed_width();
@@ -596,7 +600,11 @@ impl CrosswordEntity {
             x: 0,
             y: -(row_clue.display_height() as i32 - 1),
           },
-          format!("{} down: {}", col_clue.clue_num, col_clue.clue_txt),
+          format!(
+            "{} down: {}",
+            col_clue.clue_num,
+            col_clue.clue_entries.first().unwrap_or(&String::new())
+          ),
           CLUE_LINE_LEN,
         )
         .with_fixed_width();

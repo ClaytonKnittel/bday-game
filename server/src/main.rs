@@ -45,7 +45,7 @@ where
     sleep(Duration::from_secs(5)).await;
     let mut server_state = server_state.lock().await;
     server_state.cleanup_dead_clients().await;
-    save_scratch(server_state.scratch());
+    save_scratch(server_state.scratch()).await?;
   }
 }
 
