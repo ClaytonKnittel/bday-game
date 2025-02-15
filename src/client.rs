@@ -67,6 +67,7 @@ impl Client {
 
     Self::start_listening_thread(rstream, tx)?;
 
+    // TODO: connect to existing if possible.
     write_message_to_wire(&mut wstream, ClientMessage::NewConnection).await?;
 
     Ok(Self { stream: wstream, rx })
