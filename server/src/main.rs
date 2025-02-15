@@ -2,19 +2,27 @@ use std::process::ExitCode;
 
 use common::{
   config::PORT,
-  msg::{read_message_from_wire, ClientMessage, DecodeMessageResult},
+  msg::{
+    read_message_from_wire, write_message_to_wire, ClientMessage, DecodeMessageResult,
+    ServerMessage,
+  },
 };
 use tokio::net::{TcpListener, TcpStream};
 use util::error::TermgameResult;
 
-async fn respond_to_message(message: ClientMessage) -> TermgameResult {
+async fn respond_to_message(stream: &mut TcpStream, message: ClientMessage) -> TermgameResult {
   println!("Message: {message:?}");
+  write_message_to_wire(
+    stream,
+    ServerMessage::TestServerMessage("hi guy".to_owned()),
+  )
+  .await?;
   Ok(())
 }
 
 async fn handle_connection(mut stream: TcpStream) -> TermgameResult {
   while let DecodeMessageResult::Message(message) = read_message_from_wire(&mut stream).await? {
-    respond_to_message(message).await?;
+    respond_to_message(&mut stream, message).await?;
   }
   Ok(())
 }

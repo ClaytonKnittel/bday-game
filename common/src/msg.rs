@@ -1,8 +1,5 @@
 use bitcode::{Decode, Encode};
-use tokio::{
-  io::{AsyncReadExt, AsyncWriteExt},
-  net::TcpStream,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use util::error::TermgameResult;
 
 #[derive(Debug, Encode, Decode)]
@@ -15,7 +12,10 @@ pub enum ServerMessage {
   TestServerMessage(String),
 }
 
-pub async fn write_message_to_wire<T>(stream: &mut TcpStream, message: T) -> TermgameResult
+pub async fn write_message_to_wire<T>(
+  stream: &mut (impl AsyncWriteExt + Unpin),
+  message: T,
+) -> TermgameResult
 where
   T: Encode,
 {
@@ -33,7 +33,7 @@ pub enum DecodeMessageResult<T> {
 }
 
 pub async fn read_message_from_wire<T>(
-  stream: &mut TcpStream,
+  stream: &mut (impl AsyncReadExt + Unpin),
 ) -> TermgameResult<DecodeMessageResult<T>>
 where
   T: for<'a> Decode<'a>,

@@ -1,5 +1,6 @@
 use std::fs;
 
+use common::msg::ServerMessage;
 use termgame::event_loop::EventLoop;
 use util::{bitcode, error::TermgameResult};
 
@@ -18,12 +19,20 @@ pub async fn play_puzzle() -> TermgameResult {
       break;
     }
 
+    let scene = ev.scene();
+    let xword: &mut Crossword = scene.entity_mut(xword_uid)?;
+
     if t % 30 == 0 {
       client.write_test().await?;
     }
+    for message in client.iter_messages() {
+      match message? {
+        ServerMessage::TestServerMessage(_) => {
+          // TODO
+        }
+      }
+    }
 
-    let scene = ev.scene();
-    let xword: &Crossword = scene.entity(xword_uid)?;
     let (screen_width, screen_height) = (xword.screen_width(), xword.screen_height());
     let pos = xword.player_screen_pos();
 

@@ -1,41 +1,56 @@
-use std::sync::Arc;
+use std::iter;
 
 use common::{
   config::PORT,
-  msg::{write_message_to_wire, ClientMessage, ServerMessage},
+  msg::{
+    read_message_from_wire, write_message_to_wire, ClientMessage, DecodeMessageResult,
+    ServerMessage,
+  },
 };
 use tokio::{
-  io::AsyncWriteExt,
-  net::TcpStream,
-  sync::{
-    mpsc::{self, UnboundedReceiver, UnboundedSender},
-    Mutex,
+  net::{
+    tcp::{OwnedReadHalf, OwnedWriteHalf},
+    TcpStream,
   },
+  sync::mpsc::{self, error::TryRecvError, UnboundedReceiver, UnboundedSender},
   task::JoinHandle,
 };
 use util::{
-  bitcode::{self, Decode},
-  error::TermgameResult,
+  bitcode::Decode,
+  error::{TermgameError, TermgameResult},
 };
 
 pub struct Client {
-  stream: Arc<Mutex<TcpStream>>,
+  stream: OwnedWriteHalf,
   rx: UnboundedReceiver<ServerMessage>,
 }
 
 impl Client {
   async fn listen_for_messages<T>(
-    stream: Arc<Mutex<TcpStream>>,
+    mut stream: OwnedReadHalf,
     tx: UnboundedSender<T>,
   ) -> TermgameResult
   where
     T: for<'a> Decode<'a> + 'static,
   {
+    loop {
+      let message = {
+        match read_message_from_wire(&mut stream).await? {
+          DecodeMessageResult::Message(message) => message,
+          DecodeMessageResult::EndOfStream => break,
+        }
+      };
+
+      if let Err(err) = tx.send(message) {
+        println!("Unbounded sender error: {err}");
+        break;
+      }
+    }
     Ok(())
   }
 
   fn start_listening_thread<T>(
-    stream: Arc<Mutex<TcpStream>>,
+    stream: OwnedReadHalf,
     tx: UnboundedSender<T>,
   ) -> TermgameResult<JoinHandle<TermgameResult>>
   where
@@ -49,18 +64,28 @@ impl Client {
   pub async fn new() -> TermgameResult<Self> {
     let (tx, rx) = mpsc::unbounded_channel();
 
-    let stream = Arc::new(Mutex::new(
-      TcpStream::connect(format!("127.0.0.1:{PORT}")).await?,
-    ));
+    let stream = TcpStream::connect(format!("127.0.0.1:{PORT}")).await?;
+    let (rstream, wstream) = stream.into_split();
 
-    Self::start_listening_thread(stream.clone(), tx)?;
-    Ok(Self { stream, rx })
+    Self::start_listening_thread(rstream, tx)?;
+    Ok(Self { stream: wstream, rx })
   }
 
   pub async fn write_test(&mut self) -> TermgameResult {
     let msg = ClientMessage::TestMessage("Hello guyz!".to_owned());
-    let mut stream = self.stream.lock().await;
-    write_message_to_wire(&mut stream, msg).await?;
+    write_message_to_wire(&mut self.stream, msg).await?;
     Ok(())
+  }
+
+  pub fn iter_messages(&mut self) -> impl Iterator<Item = TermgameResult<ServerMessage>> + '_ {
+    iter::once(())
+      .cycle()
+      .map_while(|_| match self.rx.try_recv() {
+        Ok(event) => Some(Ok(event)),
+        Err(TryRecvError::Empty) => None,
+        Err(TryRecvError::Disconnected) => Some(Err(
+          TermgameError::Internal("mpsc stream disconnected".to_owned()).into(),
+        )),
+      })
   }
 }
