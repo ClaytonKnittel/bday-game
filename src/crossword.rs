@@ -22,6 +22,7 @@ pub struct CrosswordEntity {
   view: CrosswordView,
   player_pos: Pos,
   to_right: bool,
+  uid: u64,
   other_player_info: HashMap<u64, PlayerInfo>,
   actions: Vec<ClientMessage>,
 }
@@ -45,12 +46,13 @@ impl CrosswordEntity {
     }
   }
 
-  pub fn from_grid(grid: Grid<XWordTile>) -> Self {
+  pub fn from_grid(grid: Grid<XWordTile>, uid: u64) -> Self {
     Self {
       crossword: Crossword::from_grid(grid),
       view: CrosswordView::Expanded,
       player_pos: Pos::zero(),
       to_right: true,
+      uid,
       other_player_info: HashMap::new(),
       actions: vec![],
     }
@@ -470,6 +472,9 @@ impl Entity for CrosswordEntity {
 
     if self.can_move_to(player_pos) {
       self.player_pos = player_pos;
+      self
+        .actions
+        .push(ClientMessage::PositionUpdate { uid: self.uid, pos: player_pos });
     }
 
     Ok(())

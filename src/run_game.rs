@@ -28,7 +28,7 @@ pub async fn play_puzzle() -> TermgameResult {
   let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
   let xword_uid = ev
     .scene()
-    .add_entity(Box::new(CrosswordEntity::from_grid(grid)));
+    .add_entity(Box::new(CrosswordEntity::from_grid(grid, uid)));
 
   let mut ev_iter = ev.async_event_loop();
   for t in 0usize.. {
