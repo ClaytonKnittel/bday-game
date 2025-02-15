@@ -1,7 +1,7 @@
 mod client_context;
 mod server_state;
 
-use std::{process::ExitCode, sync::Arc};
+use std::{process::ExitCode, sync::Arc, time::Duration};
 
 use common::{
   config::PORT,
@@ -9,8 +9,10 @@ use common::{
 };
 use server_state::ServerState;
 use tokio::{
+  io::AsyncWriteExt,
   net::{tcp::OwnedWriteHalf, TcpListener, TcpStream},
   sync::Mutex,
+  time::sleep,
 };
 use util::error::TermgameResult;
 
@@ -27,11 +29,26 @@ async fn handle_connection(
   Ok(())
 }
 
+async fn cleanup_loop<W>(server_state: Arc<Mutex<ServerState<W>>>) -> TermgameResult
+where
+  W: AsyncWriteExt + Unpin,
+{
+  loop {
+    sleep(Duration::from_secs(5)).await;
+    server_state.lock().await.cleanup_dead_clients().await;
+  }
+}
+
 async fn run_server() -> TermgameResult {
   let addr = format!("127.0.0.1:{PORT}");
   let listener = TcpListener::bind(addr).await?;
 
   let server_state = Arc::new(Mutex::new(ServerState::new()));
+
+  {
+    let server_state = server_state.clone();
+    tokio::spawn(async move { cleanup_loop(server_state.clone()).await });
+  }
 
   loop {
     let (stream, _) = listener.accept().await?;

@@ -27,18 +27,32 @@ where
     matches!(self.state, ClientState::Live { .. })
   }
 
-  pub fn to_live(&self) -> Option<&LiveClient<W>> {
+  pub fn as_live(&self) -> Option<&LiveClient<W>> {
     match &self.state {
       ClientState::Live(state) => Some(state),
       ClientState::Dead => None,
     }
   }
 
-  pub fn to_live_mut(&mut self) -> Option<&mut LiveClient<W>> {
+  pub fn as_live_mut(&mut self) -> Option<&mut LiveClient<W>> {
     match &mut self.state {
       ClientState::Live(state) => Some(state),
       ClientState::Dead => None,
     }
+  }
+
+  pub fn make_live(&mut self, stream: Arc<Mutex<W>>) -> bool {
+    match self.state {
+      ClientState::Live(_) => false,
+      ClientState::Dead => {
+        self.state = ClientState::Live(LiveClient::new(stream));
+        true
+      }
+    }
+  }
+
+  pub fn make_dead(&mut self) {
+    self.state = ClientState::Dead;
   }
 }
 
@@ -56,5 +70,9 @@ where
 
   pub async fn write_message(&self, message: ServerMessage) -> TermgameResult {
     write_message_to_wire(&mut *self.stream.lock().await, message).await
+  }
+
+  pub async fn tcp_writeable(&self) -> bool {
+    self.write_message(ServerMessage::Ping).await.is_err()
   }
 }

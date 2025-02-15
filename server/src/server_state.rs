@@ -2,7 +2,7 @@ use std::{collections::HashMap, iter::once, sync::Arc};
 
 use common::msg::{write_message_to_wire, ClientMessage, ServerMessage};
 use tokio::{io::AsyncWriteExt, sync::Mutex};
-use util::error::TermgameResult;
+use util::error::{TermgameError, TermgameResult};
 
 use crate::client_context::{ClientContext, LiveClient};
 
@@ -31,11 +31,15 @@ where
     new_uid
   }
 
+  fn all_connections_mut(&mut self) -> impl Iterator<Item = (&u64, &mut ClientContext<W>)> {
+    self.clients.iter_mut()
+  }
+
   fn live_connections_mut(&mut self) -> impl Iterator<Item = (u64, &mut LiveClient<W>)> {
     self
       .clients
       .iter_mut()
-      .filter_map(|(&id, context)| context.to_live_mut().map(|client| (id, client)))
+      .filter_map(|(&id, context)| context.as_live_mut().map(|client| (id, client)))
   }
 
   async fn execute_actions(
@@ -77,9 +81,18 @@ where
 
   async fn connect_to_existing(
     &mut self,
+    stream: Arc<Mutex<W>>,
     uid: u64,
   ) -> TermgameResult<impl Iterator<Item = Action>> {
-    Ok(once(Action::Respond(ServerMessage::NewConnection { uid })))
+    let success = if let Some(state) = self.clients.get_mut(&uid) {
+      state.make_live(stream)
+    } else {
+      return Err(TermgameError::Internal(format!("No such client with uid {uid}")).into());
+    };
+
+    Ok(once(Action::Respond(ServerMessage::ConnectToExisting {
+      success,
+    })))
   }
 
   pub async fn respond_to_message(
@@ -101,7 +114,17 @@ where
         execute!(self.new_connection(stream.clone()).await?)
       }
       ClientMessage::ConnectToExisting { uid } => {
-        execute!(self.connect_to_existing(uid).await?)
+        execute!(self.connect_to_existing(stream.clone(), uid).await?)
+      }
+    }
+  }
+
+  pub async fn cleanup_dead_clients(&mut self) {
+    for (_, client) in self.all_connections_mut() {
+      if let Some(live_client) = client.as_live_mut() {
+        if !live_client.tcp_writeable().await {
+          client.make_dead();
+        }
       }
     }
   }

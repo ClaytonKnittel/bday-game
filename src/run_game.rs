@@ -25,7 +25,8 @@ pub async fn play_puzzle() -> TermgameResult {
     for message in client.pending_server_messages() {
       match message? {
         ServerMessage::NewConnection { uid } => {}
-        ServerMessage::ConnectToExisting => {}
+        ServerMessage::ConnectToExisting { success } => {}
+        ServerMessage::Ping => {}
       }
     }
 

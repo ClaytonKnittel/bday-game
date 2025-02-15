@@ -11,7 +11,8 @@ pub enum ClientMessage {
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ServerMessage {
   NewConnection { uid: u64 },
-  ConnectToExisting,
+  ConnectToExisting { success: bool },
+  Ping,
 }
 
 pub async fn write_message_to_wire<T>(
