@@ -73,7 +73,7 @@ impl Entity for TextBox {
             (Draw::new('+').with_z(Z_IDX), Pos { x, y }),
             (
               Draw::new('+').with_z(Z_IDX),
-              Pos { x: x + max_line_len + 4, y },
+              Pos { x: x + max_line_len + 3, y },
             ),
             (
               Draw::new('+').with_z(Z_IDX),
@@ -82,14 +82,9 @@ impl Entity for TextBox {
             (
               Draw::new('+').with_z(Z_IDX),
               Pos {
-                x: x + max_line_len + 4,
+                x: x + max_line_len + 3,
                 y: y - num_lines - 1,
               },
-            ),
-            (Draw::new(' ').with_z(Z_IDX), Pos { x: x + 1, y: y - 1 }),
-            (
-              Draw::new(' ').with_z(Z_IDX),
-              Pos { x: x + max_line_len + 2, y: y - 1 },
             ),
           ]
           .into_iter()
@@ -107,11 +102,12 @@ impl Entity for TextBox {
               (Draw::new('|').with_z(Z_IDX), Pos { x, y: y - dy - 1 }),
               (
                 Draw::new('|').with_z(Z_IDX),
-                Pos { x: max_line_len + 3, y: y - dy - 1 },
+                Pos { x: x + max_line_len + 3, y: y - dy - 1 },
               ),
             ]
           }))
           .chain(lines.into_iter().enumerate().flat_map(move |(row, line)| {
+            let row = row as i32;
             line
               .chars()
               .chain(iter::repeat(' '))
@@ -122,12 +118,19 @@ impl Entity for TextBox {
               .map(move |(col, c)| {
                 (
                   Draw::new(c).with_z(Z_IDX),
-                  Pos {
-                    x: x + col as i32 + 2,
-                    y: y - 1 - row as i32,
-                  },
+                  Pos { x: x + col as i32 + 2, y: y - 1 - row },
                 )
               })
+              .chain([
+                (
+                  Draw::new(' ').with_z(Z_IDX),
+                  Pos { x: x + 1, y: y - row - 1 },
+                ),
+                (
+                  Draw::new(' ').with_z(Z_IDX),
+                  Pos { x: x + max_line_len + 2, y: y - row - 1 },
+                ),
+              ])
           }))
         })
         .into_iter()
