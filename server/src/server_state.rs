@@ -10,13 +10,13 @@ use util::{
   error::{TermgameError, TermgameResult},
   pos::Pos,
 };
+use xword_gen::xword::XWordTile;
 
 use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
 
 enum Action {
   Respond(ServerMessage),
   Broadcast(ServerMessage),
-  Ignore,
 }
 
 pub struct ServerState<W> {
@@ -73,7 +73,6 @@ where
             context.write_message(message.clone()).await?;
           }
         }
-        Action::Ignore => {}
       }
     }
 
@@ -153,6 +152,30 @@ where
     )))
   }
 
+  async fn tile_update(
+    &mut self,
+    pos: Pos,
+    tile: XWordTile,
+  ) -> TermgameResult<impl Iterator<Item = Action>> {
+    if matches!(tile, XWordTile::Wall) {
+      return Err(TermgameError::Internal("Cannot place wall tiles".to_owned()).into());
+    }
+
+    let xword_tile = self.crossword.tile_mut(pos)?;
+    match xword_tile {
+      XWordTile::Empty | XWordTile::Letter(_) => {
+        *xword_tile = tile.clone();
+        Ok(once(Action::Broadcast(ServerMessage::TileUpdate {
+          pos,
+          tile,
+        })))
+      }
+      XWordTile::Wall => {
+        Err(TermgameError::Internal(format!("Cannot modify wall tile at {pos}")).into())
+      }
+    }
+  }
+
   async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
     Ok(once(Action::Respond(ServerMessage::FullRefresh {
       crossword: self.crossword.clone().into(),
@@ -187,6 +210,9 @@ where
       }
       ClientMessage::PositionUpdate { uid, pos } => {
         execute!(self.position_update(uid, pos).await?)
+      }
+      ClientMessage::TileUpdate { pos, tile } => {
+        execute!(self.tile_update(pos, tile).await?)
       }
       ClientMessage::FullRefresh => {
         execute!(self.full_refresh().await?)

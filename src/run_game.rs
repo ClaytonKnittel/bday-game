@@ -54,6 +54,11 @@ pub async fn play_puzzle() -> TermgameResult {
         ServerMessage::PlayerPositionUpdate { uid, pos } => {
           xword.player_info_manager_mut().update_player_pos(uid, pos);
         }
+        ServerMessage::TileUpdate { pos, tile } => {
+          if let Ok(xword_tile) = xword.tile_mut(pos) {
+            *xword_tile = tile;
+          }
+        }
         ServerMessage::FullRefresh { crossword, player_info } => {
           xword.swap_for(crossword.into());
           xword.refresh_player_info(player_info);

@@ -10,3 +10,4 @@ itertools = "0.14.0"
 termgame = { path = "../termgame" }
 tokio = { version = "1.43.0", features = ["full"] }
 util = { path = "../util" }
+xword_gen = { path = "../xword_gen" }

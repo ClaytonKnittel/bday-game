@@ -520,8 +520,13 @@ impl Entity for CrosswordEntity {
       Key::Char(letter @ 'a'..='z') => {
         let tile = self.tile_mut(player_pos)?;
         match tile {
-          XWordTile::Empty => *tile = XWordTile::Letter(letter),
-          XWordTile::Letter(_) => *tile = XWordTile::Letter(letter),
+          XWordTile::Empty | XWordTile::Letter(_) => {
+            let new_tile = XWordTile::Letter(letter);
+            *tile = new_tile.clone();
+            self
+              .actions
+              .push(ClientMessage::TileUpdate { pos: player_pos, tile: new_tile });
+          }
           XWordTile::Wall => {}
         }
 
@@ -533,11 +538,21 @@ impl Entity for CrosswordEntity {
       Key::Backspace => {
         let tile = self.tile_mut(player_pos)?;
         match tile {
-          XWordTile::Letter(_) => *tile = XWordTile::Empty,
+          XWordTile::Letter(_) => {
+            *tile = XWordTile::Empty;
+
+            self
+              .actions
+              .push(ClientMessage::TileUpdate { pos: player_pos, tile: XWordTile::Empty });
+          }
           XWordTile::Empty => {
             player_pos = self.find_prev_free_tile(player_pos);
             let tile = self.tile_mut(player_pos)?;
             *tile = XWordTile::Empty;
+
+            self
+              .actions
+              .push(ClientMessage::TileUpdate { pos: player_pos, tile: XWordTile::Empty });
           }
           XWordTile::Wall => {}
         }

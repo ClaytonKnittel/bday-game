@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bitcode::{Decode, Encode};
 use tokio::io::AsyncReadExt;
 use util::{error::TermgameResult, pos::Pos};
+use xword_gen::xword::XWordTile;
 
 use crate::{crossword::CrosswordEncoding, player_info::PlayerInfo, util::AsyncWriteT};
 
@@ -11,6 +12,7 @@ pub enum ClientMessage {
   NewConnection,
   ConnectToExisting { uid: u64 },
   PositionUpdate { uid: u64, pos: Pos },
+  TileUpdate { pos: Pos, tile: XWordTile },
   FullRefresh,
 }
 
@@ -25,6 +27,10 @@ pub enum ServerMessage {
   PlayerPositionUpdate {
     uid: u64,
     pos: Pos,
+  },
+  TileUpdate {
+    pos: Pos,
+    tile: XWordTile,
   },
   FullRefresh {
     crossword: CrosswordEncoding,
