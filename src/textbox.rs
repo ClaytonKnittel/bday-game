@@ -16,8 +16,12 @@ impl TextBox {
     Self { src, text }
   }
 
-  fn display_height(&self) -> u32 {
+  pub fn display_height(&self) -> u32 {
     self.to_lines().len() as u32 + 2
+  }
+
+  pub fn set_pos(&mut self, pos: Pos) {
+    self.src = pos;
   }
 
   fn to_lines(&self) -> Vec<String> {
@@ -108,6 +112,7 @@ impl Entity for TextBox {
           }))
           .chain(lines.into_iter().enumerate().flat_map(move |(row, line)| {
             let row = row as i32;
+            let y = y - num_lines + row;
             line
               .chars()
               .chain(iter::repeat(' '))
@@ -115,20 +120,12 @@ impl Entity for TextBox {
               .collect::<Vec<_>>()
               .into_iter()
               .enumerate()
-              .map(move |(col, c)| {
-                (
-                  Draw::new(c).with_z(Z_IDX),
-                  Pos { x: x + col as i32 + 2, y: y - 1 - row },
-                )
-              })
+              .map(move |(col, c)| (Draw::new(c).with_z(Z_IDX), Pos { x: x + col as i32 + 2, y }))
               .chain([
+                (Draw::new(' ').with_z(Z_IDX), Pos { x: x + 1, y }),
                 (
                   Draw::new(' ').with_z(Z_IDX),
-                  Pos { x: x + 1, y: y - row - 1 },
-                ),
-                (
-                  Draw::new(' ').with_z(Z_IDX),
-                  Pos { x: x + max_line_len + 2, y: y - row - 1 },
+                  Pos { x: x + max_line_len + 2, y },
                 ),
               ])
           }))

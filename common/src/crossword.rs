@@ -59,8 +59,8 @@ pub struct XWordEntry {
 
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Clue {
-  clue_txt: String,
-  clue_num: u32,
+  pub clue_txt: String,
+  pub clue_num: u32,
 }
 
 #[derive(Clone)]
@@ -232,6 +232,14 @@ impl Crossword {
 
   pub fn clue_pos_map(&self) -> &HashMap<(Pos, bool), Pos> {
     &self.clue_pos_map
+  }
+
+  pub fn clue_for_pos(&self, pos: Pos, is_row: bool) -> Option<Clue> {
+    self
+      .clue_pos_map
+      .get(&(pos, is_row))
+      .and_then(|pos| self.clue_map.get(&(*pos, is_row)))
+      .cloned()
   }
 
   pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {

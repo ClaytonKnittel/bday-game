@@ -5,12 +5,16 @@ use common::{
   msg::ClientMessage,
   player_info::{PlayerColor, PlayerInfo},
 };
+use itertools::Itertools;
 use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
   error::TermgameResult,
   grid::{Grid, Gridlike},
   pos::{Diff, Pos},
+  variant::Variant2,
 };
+
+use crate::textbox::TextBox;
 
 const Z_IDX: i32 = 5;
 
@@ -357,141 +361,139 @@ impl CrosswordEntity {
     }
   }
 
-  fn generate_expanded_view(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn generate_expanded_view(&self) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     let col = color::AnsiValue::grayscale(20);
 
-    Box::new(
-      (0..self.height() as i32)
-        .flat_map(move |y| {
-          (0..self.width() as i32)
-            .flat_map(move |x| {
-              let pos = Pos { x, y };
-              let screen_pos = Pos {
-                x: x * self.xscale(),
-                y: y * self.yscale(),
-              };
+    (0..self.height() as i32)
+      .flat_map(move |y| {
+        (0..self.width() as i32)
+          .flat_map(move |x| {
+            let pos = Pos { x, y };
+            let screen_pos = Pos {
+              x: x * self.xscale(),
+              y: y * self.yscale(),
+            };
 
-              (0..self.yscale()).flat_map(move |dy| {
-                (0..self.xscale()).flat_map(move |dx| {
-                  let screen_pos = screen_pos + Diff { x: dx, y: dy };
-                  let grid_pos = Pos { x, y };
-                  let letter = self.crossword.tile(grid_pos).ok()?.clone();
+            (0..self.yscale()).flat_map(move |dy| {
+              (0..self.xscale()).flat_map(move |dx| {
+                let screen_pos = screen_pos + Diff { x: dx, y: dy };
+                let grid_pos = Pos { x, y };
+                let letter = self.crossword.tile(grid_pos).ok()?.clone();
 
-                  let mut fg = col;
-                  let mut bg = None;
+                let mut fg = col;
+                let mut bg = None;
 
-                  if dx != 0 && dy != 0 {
-                    if let Some(color) = self.pos_player_highlight_color(pos) {
-                      fg = color::AnsiValue::grayscale(5);
-                      bg = Some(color.into());
-                    }
+                if dx != 0 && dy != 0 {
+                  if let Some(color) = self.pos_player_highlight_color(pos) {
+                    fg = color::AnsiValue::grayscale(5);
+                    bg = Some(color.into());
                   }
+                }
 
-                  let center = dx == self.xscale() / 2 && dy == self.yscale() / 2;
+                let center = dx == self.xscale() / 2 && dy == self.yscale() / 2;
 
-                  let draw = if dx == 0 && dy == 0 {
-                    Draw::new(self.cross_at(grid_pos))
-                  } else if dx == 0 {
-                    Draw::new(self.v_bar_at(grid_pos))
-                  } else if dy == 0 {
-                    Draw::new(self.h_bar_at(grid_pos))
-                  } else {
-                    let mut draw = match letter {
-                      XWordTile::Letter(c) => {
-                        if center {
-                          Draw::new(Self::char_display(c))
-                        } else {
-                          Draw::new(' ')
-                        }
+                let draw = if dx == 0 && dy == 0 {
+                  Draw::new(self.cross_at(grid_pos))
+                } else if dx == 0 {
+                  Draw::new(self.v_bar_at(grid_pos))
+                } else if dy == 0 {
+                  Draw::new(self.h_bar_at(grid_pos))
+                } else {
+                  let mut draw = match letter {
+                    XWordTile::Letter(c) => {
+                      if center {
+                        Draw::new(Self::char_display(c))
+                      } else {
+                        Draw::new(' ')
                       }
-                      XWordTile::Empty => Draw::new(' '),
-                      XWordTile::Wall => {
-                        fg = color::AnsiValue::grayscale(16);
-                        Draw::new(if dx == 1 {
-                          // ▐
-                          '\u{2590}'
-                        } else if dx == 2 {
-                          // █
-                          '\u{2588}'
-                        } else {
-                          // ▋
-                          '\u{258B}'
-                        })
-                      }
-                    };
-
-                    if center && self.should_highlight(grid_pos) {
-                      draw = draw.with_underline();
                     }
-                    draw
+                    XWordTile::Empty => Draw::new(' '),
+                    XWordTile::Wall => {
+                      fg = color::AnsiValue::grayscale(16);
+                      Draw::new(if dx == 1 {
+                        // ▐
+                        '\u{2590}'
+                      } else if dx == 2 {
+                        // █
+                        '\u{2588}'
+                      } else {
+                        // ▋
+                        '\u{258B}'
+                      })
+                    }
                   };
 
-                  let mut draw = draw.with_fg(fg).with_z(Z_IDX);
-                  if let Some(bg) = bg {
-                    draw = draw.with_bg(bg);
+                  if center && self.should_highlight(grid_pos) {
+                    draw = draw.with_underline();
                   }
-                  Some((draw, screen_pos))
-                })
+                  draw
+                };
+
+                let mut draw = draw.with_fg(fg).with_z(Z_IDX);
+                if let Some(bg) = bg {
+                  draw = draw.with_bg(bg);
+                }
+                Some((draw, screen_pos))
               })
             })
-            .chain((0..self.yscale()).map(move |dy| {
-              let grid_pos = Pos { x: self.width() as i32, y };
-              let tile = if y == 0 && dy == 0 {
-                // ┓
-                '\u{2513}'
-              } else if dy == 0 {
-                self.cross_at(grid_pos)
-              } else {
-                self.v_bar_at(grid_pos)
-              };
-              (
-                Draw::new(tile).with_fg(col).with_z(Z_IDX),
-                Pos {
-                  x: self.width() as i32 * self.xscale(),
-                  y: y * self.yscale() + dy,
-                },
-              )
-            }))
-        })
-        .chain((0..self.width() as i32).flat_map(move |x| {
-          (0..self.xscale()).map(move |dx| {
-            let grid_pos = Pos { x, y: self.height() as i32 };
-            let tile = if x == 0 && dx == 0 {
-              // ┗
-              '\u{2517}'
-            } else if dx == 0 {
+          })
+          .chain((0..self.yscale()).map(move |dy| {
+            let grid_pos = Pos { x: self.width() as i32, y };
+            let tile = if y == 0 && dy == 0 {
+              // ┓
+              '\u{2513}'
+            } else if dy == 0 {
               self.cross_at(grid_pos)
             } else {
-              self.h_bar_at(grid_pos)
+              self.v_bar_at(grid_pos)
             };
             (
               Draw::new(tile).with_fg(col).with_z(Z_IDX),
               Pos {
-                x: x * self.xscale() + dx,
-                y: self.height() as i32 * self.yscale(),
+                x: self.width() as i32 * self.xscale(),
+                y: y * self.yscale() + dy,
               },
             )
-          })
-        }))
-        .chain(iter::once((
-          Draw::new(
-            // ┛
-            '\u{251B}',
+          }))
+      })
+      .chain((0..self.width() as i32).flat_map(move |x| {
+        (0..self.xscale()).map(move |dx| {
+          let grid_pos = Pos { x, y: self.height() as i32 };
+          let tile = if x == 0 && dx == 0 {
+            // ┗
+            '\u{2517}'
+          } else if dx == 0 {
+            self.cross_at(grid_pos)
+          } else {
+            self.h_bar_at(grid_pos)
+          };
+          (
+            Draw::new(tile).with_fg(col).with_z(Z_IDX),
+            Pos {
+              x: x * self.xscale() + dx,
+              y: self.height() as i32 * self.yscale(),
+            },
           )
-          .with_fg(col)
-          .with_z(Z_IDX),
-          Pos {
-            x: self.width() as i32 * self.xscale(),
-            y: self.height() as i32 * self.yscale(),
-          },
-        ))),
-    )
+        })
+      }))
+      .chain(iter::once((
+        Draw::new(
+          // ┛
+          '\u{251B}',
+        )
+        .with_fg(col)
+        .with_z(Z_IDX),
+        Pos {
+          x: self.width() as i32 * self.xscale(),
+          y: self.height() as i32 * self.yscale(),
+        },
+      )))
   }
 
-  fn generate_compressed_view(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn generate_compressed_view(&self) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     let col = color::AnsiValue::grayscale(20);
 
-    Box::new((0..self.height() as i32).flat_map(move |y| {
+    (0..self.height() as i32).flat_map(move |y| {
       (0..self.width() as i32).map(move |x| {
         let pos = Pos { x, y };
         let screen_pos = Pos { x: x * 2, y };
@@ -510,16 +512,40 @@ impl CrosswordEntity {
 
         (draw, screen_pos)
       })
-    }))
+    })
+  }
+
+  fn generate_clue(&self, is_row: bool) -> impl Iterator<Item = (Draw, Pos)> + '_ {
+    self
+      .crossword
+      .clue_for_pos(self.player_info.player_pos(), is_row)
+      .map(|clue| {
+        TextBox::new(
+          Pos { x: 10, y: 8 },
+          format!(
+            "{} {}: {}",
+            clue.clue_num,
+            if is_row { "across" } else { "down" },
+            clue.clue_txt
+          ),
+        )
+        .iterate_tiles()
+        .collect_vec()
+      })
+      .into_iter()
+      .flatten()
   }
 }
 
 impl Entity for CrosswordEntity {
   fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
-    match self.view {
-      CrosswordView::Expanded => self.generate_expanded_view(),
-      CrosswordView::Compressed => self.generate_compressed_view(),
-    }
+    Box::new(
+      match self.view {
+        CrosswordView::Expanded => Variant2::Opt1(self.generate_expanded_view()),
+        CrosswordView::Compressed => Variant2::Opt2(self.generate_compressed_view()),
+      }
+      .chain(self.generate_clue(true)),
+    )
   }
 
   fn as_any(&self) -> &dyn std::any::Any {
