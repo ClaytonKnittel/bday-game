@@ -2,7 +2,10 @@ use std::iter;
 
 use common::{
   config::PORT,
-  msg::{read_message_from_wire, DecodeMessageResult, ServerMessage},
+  msg::{
+    read_message_from_wire, write_message_to_wire, ClientMessage, DecodeMessageResult,
+    ServerMessage,
+  },
 };
 use tokio::{
   net::{
@@ -34,16 +37,14 @@ impl Client {
       let message = {
         match read_message_from_wire(&mut stream).await? {
           DecodeMessageResult::Message(message) => message,
-          DecodeMessageResult::EndOfStream => break,
+          DecodeMessageResult::EndOfStream => return Ok(()),
         }
       };
 
       if let Err(err) = tx.send(message) {
-        println!("Unbounded sender error: {err}");
-        break;
+        return Err(TermgameError::Internal(format!("Unbounded send error: {err}")).into());
       }
     }
-    Ok(())
   }
 
   fn start_listening_thread<T>(
@@ -62,9 +63,12 @@ impl Client {
     let (tx, rx) = mpsc::unbounded_channel();
 
     let stream = TcpStream::connect(format!("127.0.0.1:{PORT}")).await?;
-    let (rstream, wstream) = stream.into_split();
+    let (rstream, mut wstream) = stream.into_split();
 
     Self::start_listening_thread(rstream, tx)?;
+
+    write_message_to_wire(&mut wstream, ClientMessage::NewConnection).await?;
+
     Ok(Self { stream: wstream, rx })
   }
 

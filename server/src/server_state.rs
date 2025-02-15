@@ -120,9 +120,10 @@ where
   }
 
   pub async fn cleanup_dead_clients(&mut self) {
-    for (_, client) in self.all_connections_mut() {
+    for (uid, client) in self.all_connections_mut() {
       if let Some(live_client) = client.as_live_mut() {
         if !live_client.tcp_writeable().await {
+          println!("Client {uid} is dead now");
           client.make_dead();
         }
       }

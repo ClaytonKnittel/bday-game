@@ -73,6 +73,6 @@ where
   }
 
   pub async fn tcp_writeable(&self) -> bool {
-    self.write_message(ServerMessage::Ping).await.is_err()
+    self.write_message(ServerMessage::Ping).await.is_ok()
   }
 }
