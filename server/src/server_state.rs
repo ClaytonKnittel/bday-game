@@ -154,7 +154,7 @@ where
   }
 
   async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
-    Ok(once(Action::Broadcast(ServerMessage::FullRefresh {
+    Ok(once(Action::Respond(ServerMessage::FullRefresh {
       crossword: self.crossword.clone().into(),
       player_info: self
         .all_connections()

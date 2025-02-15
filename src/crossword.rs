@@ -48,6 +48,11 @@ impl PlayerInfoManager {
       self.player_info = player_info;
     }
     self.other_player_info = player_info;
+    self.other_player_pos_map = self
+      .other_player_info
+      .iter()
+      .map(|(uid, PlayerInfo { pos, .. })| (*pos, *uid))
+      .collect();
   }
 
   fn player_pos(&self) -> Pos {
@@ -152,7 +157,7 @@ impl CrosswordEntity {
         })
   }
 
-  fn player_highlight_color(&self, pos: Pos) -> Option<PlayerColor> {
+  fn pos_player_highlight_color(&self, pos: Pos) -> Option<PlayerColor> {
     if self.player_info.player_pos() == pos {
       Some(self.player_info.player_info.color)
     } else {
@@ -337,9 +342,11 @@ impl CrosswordEntity {
                   let mut fg = col;
                   let mut bg = None;
 
-                  if pos == self.player_info.player_pos() && dx != 0 && dy != 0 {
-                    fg = color::AnsiValue::grayscale(5);
-                    bg = Some(color::AnsiValue::rgb(2, 4, 3));
+                  if dx != 0 && dy != 0 {
+                    if let Some(color) = self.pos_player_highlight_color(pos) {
+                      fg = color::AnsiValue::grayscale(5);
+                      bg = Some(color.into());
+                    }
                   }
 
                   let center = dx == self.xscale() / 2 && dy == self.yscale() / 2;
