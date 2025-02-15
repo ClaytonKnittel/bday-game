@@ -28,7 +28,7 @@ impl DictEntry {
     let word_len = word.chars().count();
     if word_len <= 2
       || !word.chars().all(|c| c.is_ascii_alphabetic())
-      || word.chars().all(|c| c.to_ascii_lowercase() == 'x')
+      || word.chars().all(|c| c.eq_ignore_ascii_case(&'x'))
       || (word.chars().all_equal() && word_len > 3)
     {
       return Ok(None);

@@ -1,8 +1,12 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod args;
+mod client;
 mod crossword;
 mod interactive_grid;
+mod manager;
 mod pc;
+mod run_game;
 
 use std::{
   collections::HashSet,
@@ -11,32 +15,18 @@ use std::{
   process::ExitCode,
 };
 
-use clap::{Parser, ValueEnum};
+use args::{Args, RunMode};
+use clap::Parser;
 use crossword::Crossword;
 use interactive_grid::{InteractiveGrid, InteractiveGridMode};
 use pc::Pc;
-use serde::Serialize;
+use run_game::play_puzzle;
 use termgame::{color::AnsiValue, event_loop::EventLoop};
 use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos};
 use xword_dict::XWordDict;
 use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
 
 const GRID_PATH: &str = "./grid.bin";
-
-#[derive(ValueEnum, Clone, Debug, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum RunMode {
-  InteractiveGrid,
-  Progress,
-  Play,
-}
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-  #[arg(long, default_value = "progress")]
-  mode: RunMode,
-}
 
 fn read_dict() -> TermgameResult<XWordDict> {
   const DICT_PATH: &str = "./xword_gen/dict.bin";
@@ -229,44 +219,18 @@ fn show_dlx_iters() -> TermgameResult {
   Ok(())
 }
 
-fn play_puzzle() -> TermgameResult {
-  let mut ev = EventLoop::new()?;
-  let grid = bitcode::decode(&fs::read("xword_gen/crossword.bin")?)?;
-  let xword_uid = ev.scene().add_entity(Box::new(Crossword::from_grid(grid)));
-
-  ev.run_event_loop(|scene, window, _| {
-    let width = window.width() as i32;
-    let height = window.height() as i32;
-
-    let xword: &Crossword = scene.entity(xword_uid)?;
-    let pos = xword.player_screen_pos();
-
-    let camera_pos = window.camera_pos_mut();
-
-    camera_pos.x = (pos.x - width / 2)
-      .max(0)
-      .min((xword.screen_width()).saturating_sub(width as u32) as i32);
-    camera_pos.y = (pos.y - height / 2)
-      .max(0)
-      .min((xword.screen_height()).saturating_sub(height as u32) as i32);
-
-    Ok(())
-  })?;
-
-  Ok(())
-}
-
-fn run() -> TermgameResult {
+async fn run() -> TermgameResult {
   let args = Args::parse();
   match args.mode {
     RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::DisjointRegions),
     RunMode::Progress => show_dlx_iters(),
-    RunMode::Play => play_puzzle(),
+    RunMode::Play => play_puzzle().await,
   }
 }
 
-fn main() -> ExitCode {
-  if let Err(err) = run() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
+  if let Err(err) = run().await {
     println!("Error: {err}");
     ExitCode::FAILURE
   } else {

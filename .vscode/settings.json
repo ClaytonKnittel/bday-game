@@ -1,6 +1,8 @@
 {
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml",
+        "common/Cargo.toml",
+        "server/Cargo.toml",
         "termgame/Cargo.toml",
         "util/Cargo.toml",
         "xword_dict/Cargo.toml",

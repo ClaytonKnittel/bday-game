@@ -135,7 +135,7 @@ impl Crossword {
   }
 
   fn next_free_tile_impl(&self, pos: Pos, delta: Diff) -> Pos {
-    if !self.grid.in_bounds(pos + delta) {
+    if self.is_wall(pos + delta) {
       return pos;
     }
 
@@ -153,7 +153,12 @@ impl Crossword {
   }
 
   fn find_prev_free_tile(&self, pos: Pos) -> Pos {
-    self.next_free_tile_impl(pos, if self.to_right { -Diff::DX } else { -Diff::DY })
+    let delta = if self.to_right { -Diff::DX } else { -Diff::DY };
+    if self.is_wall(pos + delta) {
+      pos
+    } else {
+      pos + delta
+    }
   }
 
   fn is_empty(&self, pos: Pos) -> bool {
