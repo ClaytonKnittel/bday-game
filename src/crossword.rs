@@ -723,6 +723,11 @@ impl Entity for CrosswordEntity {
             .collect_vec(),
         );
       }
+      Key::Char('`') => {
+        self
+          .actions
+          .push(ClientMessage::CycleClue { pos: player_pos, is_row: self.to_right });
+      }
       Key::Char('/') => {
         self.view = match self.view {
           CrosswordView::Expanded => CrosswordView::Compressed,

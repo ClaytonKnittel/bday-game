@@ -51,10 +51,6 @@ impl TextBox {
     self.to_lines().len() as u32 + 2
   }
 
-  pub fn set_pos(&mut self, pos: Pos) {
-    self.src = pos;
-  }
-
   fn max_line_len(&self) -> u32 {
     self
       .fixed_width

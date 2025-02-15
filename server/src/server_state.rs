@@ -9,6 +9,7 @@ use common::{
   msg::{write_message_to_wire, ClientMessage, ServerMessage},
   util::AsyncWriteT,
 };
+use itertools::Itertools;
 use tokio::sync::Mutex;
 use util::{
   error::{TermgameError, TermgameResult},
@@ -204,6 +205,27 @@ where
     })
   }
 
+  async fn cycle_clue(
+    &mut self,
+    pos: Pos,
+    is_row: bool,
+  ) -> TermgameResult<impl Iterator<Item = Action>> {
+    if let Some(clue) = self.scratch.clue_for_pos_mut(pos, is_row) {
+      let clue_entries = clue
+        .clue_entries
+        .iter()
+        .skip(1)
+        .chain(clue.clue_entries.first().into_iter())
+        .cloned()
+        .collect_vec();
+      clue.clue_entries = clue_entries;
+
+      Ok(Variant2::Opt1(self.full_refresh().await?))
+    } else {
+      Ok(Variant2::Opt2(empty()))
+    }
+  }
+
   async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
     Ok(once(Action::Respond(ServerMessage::FullRefresh {
       crossword: self.scratch.clone().into(),
@@ -244,6 +266,9 @@ where
       }
       ClientMessage::CheckTile { pos } => {
         execute!(self.check_tile(pos).await?)
+      }
+      ClientMessage::CycleClue { pos, is_row } => {
+        execute!(self.cycle_clue(pos, is_row).await?)
       }
       ClientMessage::FullRefresh => {
         execute!(self.full_refresh().await?)

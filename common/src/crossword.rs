@@ -242,12 +242,18 @@ impl Crossword {
     &self.clue_map
   }
 
-  pub fn clue_for_pos(&self, pos: Pos, is_row: bool) -> Option<Clue> {
+  pub fn clue_for_pos(&self, pos: Pos, is_row: bool) -> Option<&Clue> {
     self
       .clue_pos_map
       .get(&(pos, is_row))
       .and_then(|pos| self.clue_map.get(&(*pos, is_row)))
-      .cloned()
+  }
+
+  pub fn clue_for_pos_mut(&mut self, pos: Pos, is_row: bool) -> Option<&mut Clue> {
+    self
+      .clue_pos_map
+      .get_mut(&(pos, is_row))
+      .and_then(|pos| self.clue_map.get_mut(&(*pos, is_row)))
   }
 
   pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {

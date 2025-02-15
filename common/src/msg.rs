@@ -17,6 +17,7 @@ pub enum ClientMessage {
   PositionUpdate { uid: u64, pos: Pos },
   TileUpdate { pos: Pos, tile: XWordTile },
   CheckTile { pos: Pos },
+  CycleClue { pos: Pos, is_row: bool },
   FullRefresh,
 }
 
