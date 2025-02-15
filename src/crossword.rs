@@ -1,6 +1,6 @@
-use std::iter;
+use std::{collections::HashMap, iter, mem};
 
-use common::crossword::Crossword;
+use common::{crossword::Crossword, msg::ClientMessage, player_info::PlayerInfo};
 use termgame::{color, draw::Draw, entity::Entity, Key};
 use util::{
   error::TermgameResult,
@@ -22,6 +22,8 @@ pub struct CrosswordEntity {
   view: CrosswordView,
   player_pos: Pos,
   to_right: bool,
+  other_player_info: HashMap<u64, PlayerInfo>,
+  actions: Vec<ClientMessage>,
 }
 
 impl CrosswordEntity {
@@ -49,11 +51,17 @@ impl CrosswordEntity {
       view: CrosswordView::Expanded,
       player_pos: Pos::zero(),
       to_right: true,
+      other_player_info: HashMap::new(),
+      actions: vec![],
     }
   }
 
   pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
     self.crossword = Crossword::from_grid(new_grid);
+  }
+
+  pub fn player_info_mut(&mut self, uid: u64) -> Option<&mut PlayerInfo> {
+    self.other_player_info.get_mut(&uid)
   }
 
   pub fn width(&self) -> u32 {
@@ -77,6 +85,12 @@ impl CrosswordEntity {
 
   pub fn screen_height(&self) -> u32 {
     self.height() * self.yscale() as u32 + 1
+  }
+
+  pub fn take_actions(&mut self) -> Vec<ClientMessage> {
+    let mut actions = vec![];
+    mem::swap(&mut actions, &mut self.actions);
+    actions
   }
 
   pub fn tile_mut(&mut self, pos: Pos) -> TermgameResult<&mut XWordTile> {

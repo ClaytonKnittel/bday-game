@@ -86,4 +86,8 @@ impl Client {
         )),
       })
   }
+
+  pub async fn send_message(&mut self, message: ClientMessage) -> TermgameResult {
+    write_message_to_wire(&mut self.stream, message).await
+  }
 }
