@@ -41,11 +41,16 @@ impl DictEntry {
       return Ok(None);
     }
 
+    let publish_year: u16 = items[1].parse()?;
+    if publish_year < 1999 {
+      return Ok(None);
+    }
+
     Ok(Some((
       Self::canonicalize_word(word),
       Self {
         publisher: items[0].to_owned(),
-        publish_year: items[1].parse()?,
+        publish_year,
         clue,
       },
     )))
