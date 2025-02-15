@@ -1,13 +1,13 @@
 use termgame::{entity::Entity, Key};
 use util::{error::TermgameResult, pos::Pos};
 
-use crate::crossword::Crossword;
+use crate::crossword::CrosswordEntity;
 
 /// Poll the server every 2 frames.
 const POLL_PERIOD: usize = 2;
 
 struct Manager {
-  xword: Crossword,
+  xword: CrosswordEntity,
 }
 
 impl Manager {

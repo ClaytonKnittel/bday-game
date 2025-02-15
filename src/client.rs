@@ -63,12 +63,9 @@ impl Client {
     let (tx, rx) = mpsc::unbounded_channel();
 
     let stream = TcpStream::connect(format!("127.0.0.1:{PORT}")).await?;
-    let (rstream, mut wstream) = stream.into_split();
+    let (rstream, wstream) = stream.into_split();
 
     Self::start_listening_thread(rstream, tx)?;
-
-    // TODO: connect to existing if possible.
-    write_message_to_wire(&mut wstream, ClientMessage::NewConnection).await?;
 
     Ok(Self { stream: wstream, rx })
   }
@@ -85,5 +82,13 @@ impl Client {
           TermgameError::Internal("mpsc stream disconnected".to_owned()).into(),
         )),
       })
+  }
+
+  pub async fn recv_server_message(&mut self) -> Option<ServerMessage> {
+    self.rx.recv().await
+  }
+
+  pub async fn send_message(&mut self, message: ClientMessage) -> TermgameResult {
+    write_message_to_wire(&mut self.stream, message).await
   }
 }

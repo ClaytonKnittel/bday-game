@@ -1,6 +1,6 @@
 use std::iter;
 
-use termgame::{color::AnsiValue, draw::Draw, entity::Entity, Key};
+use termgame::{color::AnsiValue, draw::Draw, entity::Entity, window::WindowDimensions, Key};
 use util::{error::TermgameResult, pos::Pos};
 
 const Z_IDX: i32 = 100;
@@ -21,7 +21,10 @@ impl Pc {
 }
 
 impl Entity for Pc {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn iterate_tiles<'a>(
+    &'a self,
+    _: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a> {
     Box::new(iter::once((
       Draw::new('C').with_fg(self.color).with_z(Z_IDX),
       self.pos,

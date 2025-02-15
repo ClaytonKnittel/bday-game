@@ -5,16 +5,21 @@ use std::{process::ExitCode, sync::Arc, time::Duration};
 
 use common::{
   config::PORT,
+  crossword::Crossword,
   msg::{read_message_from_wire, DecodeMessageResult},
+  util::AsyncWriteT,
 };
 use server_state::ServerState;
 use tokio::{
-  io::AsyncWriteExt,
+  fs,
   net::{tcp::OwnedWriteHalf, TcpListener, TcpStream},
   sync::Mutex,
   time::sleep,
 };
-use util::error::TermgameResult;
+use util::{bitcode, error::TermgameResult};
+use xword_dict::XWordDict;
+
+const DICT_PATH: &str = "../xword_gen/dict.bin";
 
 async fn handle_connection(
   stream: TcpStream,
@@ -31,7 +36,7 @@ async fn handle_connection(
 
 async fn cleanup_loop<W>(server_state: Arc<Mutex<ServerState<W>>>) -> TermgameResult
 where
-  W: AsyncWriteExt + Unpin,
+  W: AsyncWriteT,
 {
   loop {
     sleep(Duration::from_secs(5)).await;
@@ -39,11 +44,25 @@ where
   }
 }
 
+async fn read_dict() -> TermgameResult<XWordDict> {
+  Ok(bitcode::decode(&fs::read(DICT_PATH).await?)?)
+}
+
+async fn load_crossword() -> TermgameResult<Crossword> {
+  let dict = read_dict().await?;
+  // TODO use as default if no state found.
+  Crossword::make_clues(
+    bitcode::decode(&fs::read("../xword_gen/crossword.bin").await?)?,
+    &dict,
+  )
+}
+
 async fn run_server() -> TermgameResult {
   let addr = format!("127.0.0.1:{PORT}");
   let listener = TcpListener::bind(addr).await?;
 
-  let server_state = Arc::new(Mutex::new(ServerState::new()));
+  let crossword = load_crossword().await?;
+  let server_state = Arc::new(Mutex::new(ServerState::with_crossword(crossword)));
 
   {
     let server_state = server_state.clone();

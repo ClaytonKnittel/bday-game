@@ -1,8 +1,16 @@
-use std::sync::Arc;
+use std::{
+  ops::{Deref, DerefMut},
+  sync::Arc,
+};
 
-use common::msg::{write_message_to_wire, ServerMessage};
-use tokio::{io::AsyncWriteExt, sync::Mutex};
-use util::error::TermgameResult;
+use common::{
+  msg::{write_message_to_wire, ServerMessage},
+  player_info::PlayerInfo,
+  util::AsyncWriteT,
+};
+use termgame::color;
+use tokio::sync::Mutex;
+use util::{error::TermgameResult, pos::Pos};
 
 enum ClientState<W> {
   Dead,
@@ -11,15 +19,20 @@ enum ClientState<W> {
 
 pub struct ClientContext<W> {
   state: ClientState<W>,
+  player_info: PlayerInfo,
 }
 
 impl<W> ClientContext<W>
 where
-  W: AsyncWriteExt + Unpin,
+  W: AsyncWriteT,
 {
   pub fn new(stream: Arc<Mutex<W>>) -> Self {
     Self {
       state: ClientState::Live(LiveClient::new(stream)),
+      player_info: PlayerInfo {
+        pos: Pos::zero(),
+        color: color::AnsiValue::rgb(2, 3, 4).into(),
+      },
     }
   }
 
@@ -41,18 +54,26 @@ where
     }
   }
 
-  pub fn make_live(&mut self, stream: Arc<Mutex<W>>) -> bool {
+  pub fn make_live(&mut self, stream: Arc<Mutex<W>>) -> Option<&mut LiveClient<W>> {
     match self.state {
-      ClientState::Live(_) => false,
+      ClientState::Live(_) => None,
       ClientState::Dead => {
         self.state = ClientState::Live(LiveClient::new(stream));
-        true
+        self.as_live_mut()
       }
     }
   }
 
   pub fn make_dead(&mut self) {
     self.state = ClientState::Dead;
+  }
+
+  pub fn player_info(&self) -> &PlayerInfo {
+    &self.player_info
+  }
+
+  pub fn player_info_mut(&mut self) -> &mut PlayerInfo {
+    &mut self.player_info
   }
 }
 
@@ -62,7 +83,7 @@ pub struct LiveClient<W> {
 
 impl<W> LiveClient<W>
 where
-  W: AsyncWriteExt + Unpin,
+  W: AsyncWriteT,
 {
   fn new(stream: Arc<Mutex<W>>) -> Self {
     Self { stream }
@@ -74,5 +95,42 @@ where
 
   pub async fn tcp_writeable(&self) -> bool {
     self.write_message(ServerMessage::Ping).await.is_ok()
+  }
+
+  pub async fn to_authenticated_mut(&mut self) -> Option<AuthenticatedLiveClient<'_, W>> {
+    // TODO: authentication?
+    let matches_expected = { true };
+    if matches_expected {
+      Some(AuthenticatedLiveClient::new(self))
+    } else {
+      None
+    }
+  }
+}
+
+pub struct AuthenticatedLiveClient<'a, W> {
+  live_client: &'a mut LiveClient<W>,
+}
+
+impl<'a, W> AuthenticatedLiveClient<'a, W>
+where
+  W: AsyncWriteT,
+{
+  fn new(live_client: &'a mut LiveClient<W>) -> Self {
+    Self { live_client }
+  }
+}
+
+impl<W> Deref for AuthenticatedLiveClient<'_, W> {
+  type Target = LiveClient<W>;
+
+  fn deref(&self) -> &Self::Target {
+    self.live_client
+  }
+}
+
+impl<W> DerefMut for AuthenticatedLiveClient<'_, W> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    self.live_client
   }
 }

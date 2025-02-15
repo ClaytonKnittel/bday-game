@@ -1,34 +1,49 @@
 use std::{collections::HashMap, iter::once, sync::Arc};
 
-use common::msg::{write_message_to_wire, ClientMessage, ServerMessage};
-use tokio::{io::AsyncWriteExt, sync::Mutex};
-use util::error::{TermgameError, TermgameResult};
+use common::{
+  crossword::{Crossword, XWordTile},
+  msg::{write_message_to_wire, ClientMessage, ServerMessage},
+  util::AsyncWriteT,
+};
+use tokio::sync::Mutex;
+use util::{
+  error::{TermgameError, TermgameResult},
+  pos::Pos,
+};
 
-use crate::client_context::{ClientContext, LiveClient};
+use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
 
 enum Action {
   Respond(ServerMessage),
   Broadcast(ServerMessage),
-  Ignore,
 }
 
 pub struct ServerState<W> {
+  crossword: Crossword,
   clients: HashMap<u64, ClientContext<W>>,
   next_uid: u64,
 }
 
 impl<W> ServerState<W>
 where
-  W: AsyncWriteExt + Unpin,
+  W: AsyncWriteT,
 {
-  pub fn new() -> Self {
-    Self { clients: HashMap::new(), next_uid: 0 }
+  pub fn with_crossword(crossword: Crossword) -> Self {
+    Self {
+      crossword,
+      clients: HashMap::new(),
+      next_uid: 0,
+    }
   }
 
   fn assign_new_uid(&mut self) -> u64 {
     let new_uid = self.next_uid;
     self.next_uid += 1;
     new_uid
+  }
+
+  fn all_connections(&self) -> impl Iterator<Item = (&u64, &ClientContext<W>)> {
+    self.clients.iter()
   }
 
   fn all_connections_mut(&mut self) -> impl Iterator<Item = (&u64, &mut ClientContext<W>)> {
@@ -57,11 +72,40 @@ where
             context.write_message(message.clone()).await?;
           }
         }
-        Action::Ignore => {}
       }
     }
 
     Ok(())
+  }
+
+  async fn to_authenticated_mut(
+    &mut self,
+    uid: u64,
+  ) -> TermgameResult<AuthenticatedLiveClient<'_, W>> {
+    if let Some(state) = self.clients.get_mut(&uid) {
+      if let Some(live_state) = state.as_live_mut() {
+        if let Some(auth_client) = live_state.to_authenticated_mut().await {
+          Ok(auth_client)
+        } else {
+          Err(TermgameError::Internal(format!("Cannot authenticate as client {uid}")).into())
+        }
+      } else {
+        Err(TermgameError::Internal(format!("Client {uid} is not live")).into())
+      }
+    } else {
+      Err(TermgameError::Internal(format!("No such client with uid {uid}")).into())
+    }
+  }
+
+  async fn to_authenticated_context_mut(
+    &mut self,
+    uid: u64,
+  ) -> TermgameResult<&mut ClientContext<W>> {
+    self.to_authenticated_mut(uid).await?;
+    self
+      .clients
+      .get_mut(&uid)
+      .ok_or_else(|| TermgameError::Internal(format!("No such client with uid {uid}")).into())
   }
 
   async fn new_connection(
@@ -85,13 +129,63 @@ where
     uid: u64,
   ) -> TermgameResult<impl Iterator<Item = Action>> {
     let success = if let Some(state) = self.clients.get_mut(&uid) {
-      state.make_live(stream)
+      state.make_live(stream).ok_or_else(|| {
+        TermgameError::Internal(format!("Trying to connect to live connection on {uid}"))
+      })?;
+      true
     } else {
-      return Err(TermgameError::Internal(format!("No such client with uid {uid}")).into());
+      false
     };
 
     Ok(once(Action::Respond(ServerMessage::ConnectToExisting {
       success,
+    })))
+  }
+
+  async fn position_update(
+    &mut self,
+    uid: u64,
+    pos: Pos,
+  ) -> TermgameResult<impl Iterator<Item = Action>> {
+    let context = self.to_authenticated_context_mut(uid).await?;
+    context.player_info_mut().pos = pos;
+    Ok(once(Action::Broadcast(
+      ServerMessage::PlayerPositionUpdate { uid, pos },
+    )))
+  }
+
+  async fn tile_update(
+    &mut self,
+    pos: Pos,
+    tile: XWordTile,
+  ) -> TermgameResult<impl Iterator<Item = Action>> {
+    if matches!(tile, XWordTile::Wall) {
+      return Err(TermgameError::Internal("Cannot place wall tiles".to_owned()).into());
+    }
+
+    let xword_tile = self.crossword.tile_mut(pos)?;
+    match xword_tile {
+      XWordTile::Empty | XWordTile::Letter(_) => {
+        *xword_tile = tile.clone();
+        Ok(once(Action::Broadcast(ServerMessage::TileUpdate {
+          pos,
+          tile,
+        })))
+      }
+      XWordTile::Wall => {
+        Err(TermgameError::Internal(format!("Cannot modify wall tile at {pos}")).into())
+      }
+    }
+  }
+
+  async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
+    Ok(once(Action::Respond(ServerMessage::FullRefresh {
+      crossword: self.crossword.clone().into(),
+      player_info: self
+        .all_connections()
+        .filter(|(_, connection)| connection.is_live())
+        .map(|(&uid, connection)| (uid, connection.player_info().clone()))
+        .collect(),
     })))
   }
 
@@ -115,6 +209,15 @@ where
       }
       ClientMessage::ConnectToExisting { uid } => {
         execute!(self.connect_to_existing(stream.clone(), uid).await?)
+      }
+      ClientMessage::PositionUpdate { uid, pos } => {
+        execute!(self.position_update(uid, pos).await?)
+      }
+      ClientMessage::TileUpdate { pos, tile } => {
+        execute!(self.tile_update(pos, tile).await?)
+      }
+      ClientMessage::FullRefresh => {
+        execute!(self.full_refresh().await?)
       }
     }
   }

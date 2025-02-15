@@ -2,6 +2,14 @@ use std::fmt::Display;
 
 use termion::{color, style};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrawStyle {
+  Relative,
+  FixedPosTopLeft,
+  FixedPosTopRight,
+  FixedPosBottomRight,
+}
+
 #[derive(Clone)]
 pub struct Draw {
   item: char,
@@ -11,6 +19,7 @@ pub struct Draw {
   italic: bool,
   bold: bool,
   underlined: bool,
+  draw_style: DrawStyle,
 }
 
 impl Draw {
@@ -23,6 +32,7 @@ impl Draw {
       italic: false,
       bold: false,
       underlined: false,
+      draw_style: DrawStyle::Relative,
     }
   }
 
@@ -56,6 +66,14 @@ impl Draw {
 
   pub fn with_underline(self) -> Self {
     Self { underlined: true, ..self }
+  }
+
+  pub fn with_draw_style(self, draw_style: DrawStyle) -> Self {
+    Self { draw_style, ..self }
+  }
+
+  pub fn draw_style(&self) -> DrawStyle {
+    self.draw_style
   }
 }
 
@@ -102,6 +120,7 @@ impl PartialEq for Draw {
       && self.italic == other.italic
       && self.bold == other.bold
       && self.underlined == other.underlined
+      && self.draw_style == other.draw_style
       && match (self.fg_color, other.fg_color) {
         (Some(color::AnsiValue(c1)), Some(color::AnsiValue(c2))) => c1 == c2,
         (None, None) => true,

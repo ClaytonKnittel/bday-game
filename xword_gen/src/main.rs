@@ -1,13 +1,15 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::{
+  collections::HashMap,
   fs::{self, File},
   io::{BufRead, BufReader, Write},
 };
 
-use util::{bitcode, error::TermgameResult, grid::Grid, time::time_fn};
+use common::crossword::{Clue, XWordTile};
+use util::{bitcode, error::TermgameResult, grid::Grid, pos::Pos, time::time_fn};
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTile, XWordTraits, XWordWithRequired};
+use xword_gen::xword::{XWord, XWordTraits, XWordWithRequired};
 
 const DICT_PATH: &str = "./dict.bin";
 

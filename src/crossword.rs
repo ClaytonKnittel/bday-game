@@ -1,14 +1,29 @@
-use std::{collections::HashMap, iter};
+use std::{collections::HashMap, iter, mem};
 
-use termgame::{color, draw::Draw, entity::Entity, Key};
-use util::{
-  error::{TermgameError, TermgameResult},
-  grid::{Grid, Gridlike, MutGridlike},
-  pos::{Diff, Pos},
+use common::{
+  crossword::{Clue, Crossword, XWordTile},
+  msg::ClientMessage,
+  player_info::{PlayerColor, PlayerInfo},
 };
-use xword_gen::xword::XWordTile;
+use itertools::Itertools;
+use termgame::{
+  color,
+  draw::{Draw, DrawStyle},
+  entity::Entity,
+  window::WindowDimensions,
+  Key,
+};
+use util::{
+  error::TermgameResult,
+  grid::{Grid, Gridlike},
+  pos::{Diff, Pos},
+  variant::Variant2,
+};
+
+use crate::textbox::TextBox;
 
 const Z_IDX: i32 = 5;
+const CLUE_LINE_LEN: u32 = 60;
 
 #[derive(Clone, Copy, Debug)]
 enum CrosswordView {
@@ -16,15 +31,76 @@ enum CrosswordView {
   Compressed,
 }
 
-pub struct Crossword {
-  grid: Grid<XWordTile>,
-  view: CrosswordView,
-  player_pos: Pos,
-  to_right: bool,
-  clue_map: HashMap<(Pos, bool), Pos>,
+pub struct PlayerInfoManager {
+  uid: u64,
+  player_info: PlayerInfo,
+  other_player_info: HashMap<u64, PlayerInfo>,
+  other_player_pos_map: HashMap<Pos, Vec<u64>>,
 }
 
-impl Crossword {
+impl PlayerInfoManager {
+  fn new(uid: u64) -> Self {
+    Self {
+      uid,
+      player_info: PlayerInfo {
+        pos: Pos::zero(),
+        color: color::AnsiValue::rgb(1, 2, 3).into(),
+      },
+      other_player_info: HashMap::new(),
+      other_player_pos_map: HashMap::new(),
+    }
+  }
+
+  fn refresh(&mut self, mut player_info: HashMap<u64, PlayerInfo>, overwrite_pos: bool) {
+    if let Some(mut player_info) = player_info.remove(&self.uid) {
+      if !overwrite_pos {
+        player_info.pos = self.player_info.pos;
+      }
+      self.player_info = player_info;
+    }
+    self.other_player_info = player_info;
+
+    self.other_player_pos_map.clear();
+    for (uid, PlayerInfo { pos, .. }) in self.other_player_info.iter() {
+      self
+        .other_player_pos_map
+        .entry(*pos)
+        .or_default()
+        .push(*uid);
+    }
+  }
+
+  fn player_pos(&self) -> Pos {
+    self.player_info.pos
+  }
+
+  pub fn update_player_pos(&mut self, uid: u64, pos: Pos) {
+    if let Some(player_info) = self.other_player_info.get_mut(&uid) {
+      let old_pos = player_info.pos;
+      player_info.pos = pos;
+
+      if let Some(poses) = self.other_player_pos_map.get_mut(&old_pos) {
+        if let Some(idx) = poses.iter().position(|other_uid| *other_uid == uid) {
+          poses.remove(idx);
+          if poses.is_empty() {
+            self.other_player_pos_map.remove(&pos);
+          }
+        }
+      }
+    }
+    self.other_player_pos_map.entry(pos).or_default().push(uid);
+  }
+}
+
+pub struct CrosswordEntity {
+  crossword: Crossword,
+  view: CrosswordView,
+  to_right: bool,
+  actions: Vec<ClientMessage>,
+  player_info: PlayerInfoManager,
+}
+
+impl CrosswordEntity {
   fn char_display(c: char) -> char {
     c.to_ascii_uppercase()
   }
@@ -43,54 +119,56 @@ impl Crossword {
     }
   }
 
-  fn build_clue_map(grid: &Grid<XWordTile>) -> HashMap<(Pos, bool), Pos> {
-    grid
-      .positions()
-      .filter(|&pos| {
-        grid
-          .get(pos)
-          .is_some_and(|tile| !matches!(tile, XWordTile::Wall))
-      })
-      .fold(HashMap::new(), |mut map, pos| {
-        map.insert(
-          (pos, false),
-          map.get(&(pos - Diff::DY, false)).cloned().unwrap_or(pos),
-        );
-        map.insert(
-          (pos, true),
-          map.get(&(pos - Diff::DX, true)).cloned().unwrap_or(pos),
-        );
-        map
-      })
-  }
-
-  pub fn from_grid(grid: Grid<XWordTile>) -> Self {
-    let clue_map = Self::build_clue_map(&grid);
+  pub fn from_grid(grid: Grid<XWordTile>, uid: u64, clue_map: HashMap<(Pos, bool), Clue>) -> Self {
     Self {
-      grid,
+      crossword: Crossword::from_grid(grid, clue_map),
       view: CrosswordView::Expanded,
-      player_pos: Pos::zero(),
       to_right: true,
-      clue_map,
+      actions: vec![],
+      player_info: PlayerInfoManager::new(uid),
     }
   }
 
-  pub fn swap_grid(&mut self, new_grid: Grid<XWordTile>) {
-    self.grid = new_grid;
+  pub fn with_crossword_and_player_info(
+    crossword: Crossword,
+    player_info: HashMap<u64, PlayerInfo>,
+    uid: u64,
+  ) -> Self {
+    let mut player_info_manager = PlayerInfoManager::new(uid);
+    player_info_manager.refresh(player_info, true);
+    Self {
+      crossword,
+      view: CrosswordView::Expanded,
+      to_right: true,
+      actions: vec![],
+      player_info: player_info_manager,
+    }
+  }
+
+  pub fn swap_for(&mut self, xword: Crossword) {
+    self.crossword = xword;
+  }
+
+  pub fn player_info_manager_mut(&mut self) -> &mut PlayerInfoManager {
+    &mut self.player_info
+  }
+
+  pub fn refresh_player_info(&mut self, player_info: HashMap<u64, PlayerInfo>) {
+    self.player_info.refresh(player_info, false);
   }
 
   pub fn width(&self) -> u32 {
-    self.grid.width()
+    self.crossword.width()
   }
 
   pub fn height(&self) -> u32 {
-    self.grid.height()
+    self.crossword.height()
   }
 
   pub fn player_screen_pos(&self) -> Pos {
     Pos {
-      x: self.player_pos.x * self.xscale() + self.xscale() / 2,
-      y: self.player_pos.y * self.yscale() + self.yscale() / 2,
+      x: self.player_info.player_pos().x * self.xscale() + self.xscale() / 2,
+      y: self.player_info.player_pos().y * self.yscale() + self.yscale() / 2,
     }
   }
 
@@ -102,35 +180,53 @@ impl Crossword {
     self.height() * self.yscale() as u32 + 1
   }
 
-  pub fn tile(&self, pos: Pos) -> TermgameResult<&XWordTile> {
-    self
-      .grid
-      .get(pos)
-      .ok_or_else(|| TermgameError::Internal(format!("Pos is out of bounds: {pos}")).into())
+  pub fn take_actions(&mut self) -> Vec<ClientMessage> {
+    let mut actions = vec![];
+    mem::swap(&mut actions, &mut self.actions);
+    actions
   }
 
   pub fn tile_mut(&mut self, pos: Pos) -> TermgameResult<&mut XWordTile> {
-    self.grid.get_mut(pos).ok_or_else(|| {
-      TermgameError::Internal(format!("Mutable access pos is out of bounds: {pos}")).into()
-    })
+    self.crossword.tile_mut(pos)
   }
 
   fn should_highlight(&self, pos: Pos) -> bool {
-    pos != self.player_pos
+    pos != self.player_info.player_pos()
       && self
-        .clue_map
+        .crossword
+        .clue_pos_map()
         .get(&(pos, self.to_right))
         .is_some_and(|row_id| {
           self
-            .clue_map
-            .get(&(self.player_pos, self.to_right))
+            .crossword
+            .clue_pos_map()
+            .get(&(self.player_info.player_pos(), self.to_right))
             .is_some_and(|player_row_id| row_id == player_row_id)
         })
   }
 
+  fn pos_player_highlight_color(&self, pos: Pos) -> Option<PlayerColor> {
+    if self.player_info.player_pos() == pos {
+      Some(self.player_info.player_info.color)
+    } else {
+      self
+        .player_info
+        .other_player_pos_map
+        .get(&pos)
+        .and_then(|uid| uid.first())
+        .and_then(|uid| {
+          self
+            .player_info
+            .other_player_info
+            .get(uid)
+            .map(|player_info| player_info.color)
+        })
+    }
+  }
+
   fn can_move_to(&self, pos: Pos) -> bool {
-    (0..self.grid.width() as i32).contains(&pos.x)
-      && (0..self.grid.height() as i32).contains(&pos.y)
+    (0..self.crossword.width() as i32).contains(&pos.x)
+      && (0..self.crossword.height() as i32).contains(&pos.y)
       && !self.is_wall(pos)
   }
 
@@ -162,17 +258,11 @@ impl Crossword {
   }
 
   fn is_empty(&self, pos: Pos) -> bool {
-    self
-      .grid
-      .get(pos)
-      .is_none_or(|tile| matches!(tile, XWordTile::Empty))
+    self.crossword.is_empty(pos)
   }
 
   fn is_wall(&self, pos: Pos) -> bool {
-    self
-      .grid
-      .get(pos)
-      .is_none_or(|tile| matches!(tile, XWordTile::Wall))
+    self.crossword.is_wall(pos)
   }
 
   fn cross_at(&self, pos: Pos) -> char {
@@ -187,9 +277,9 @@ impl Crossword {
       '\u{2545}', '\u{2549}', '\u{2548}', '\u{254B}',
     ];
 
-    let u_in_bounds = self.grid.in_bounds(pos + Diff { x: 0, y: -1 });
-    let self_in_bounds = self.grid.in_bounds(pos + Diff { x: 0, y: 0 });
-    let l_in_bounds = self.grid.in_bounds(pos + Diff { x: -1, y: 0 });
+    let u_in_bounds = self.crossword.grid().in_bounds(pos + Diff { x: 0, y: -1 });
+    let self_in_bounds = self.crossword.grid().in_bounds(pos + Diff { x: 0, y: 0 });
+    let l_in_bounds = self.crossword.grid().in_bounds(pos + Diff { x: -1, y: 0 });
 
     let ul = self.is_wall(pos + Diff { x: -1, y: -1 });
     let ur = self.is_wall(pos + Diff { x: 0, y: -1 });
@@ -278,167 +368,239 @@ impl Crossword {
     }
   }
 
-  fn generate_expanded_view(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn generate_expanded_view(&self) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     let col = color::AnsiValue::grayscale(20);
 
-    Box::new(
-      (0..self.height() as i32)
-        .flat_map(move |y| {
-          (0..self.width() as i32)
-            .flat_map(move |x| {
-              let pos = Pos { x, y };
-              let screen_pos = Pos {
-                x: x * self.xscale(),
-                y: y * self.yscale(),
-              };
+    (0..self.height() as i32)
+      .flat_map(move |y| {
+        (0..self.width() as i32)
+          .flat_map(move |x| {
+            let pos = Pos { x, y };
+            let screen_pos = Pos {
+              x: x * self.xscale(),
+              y: y * self.yscale(),
+            };
 
-              (0..self.yscale()).flat_map(move |dy| {
-                (0..self.xscale()).flat_map(move |dx| {
-                  let screen_pos = screen_pos + Diff { x: dx, y: dy };
-                  let grid_pos = Pos { x, y };
-                  let letter = self.grid.get(grid_pos)?.clone();
+            (0..self.yscale()).flat_map(move |dy| {
+              (0..self.xscale()).flat_map(move |dx| {
+                let screen_pos = screen_pos + Diff { x: dx, y: dy };
+                let grid_pos = Pos { x, y };
+                let letter = self.crossword.tile(grid_pos).ok()?.clone();
 
-                  let mut fg = col;
-                  let mut bg = None;
+                let mut fg = col;
+                let mut bg = None;
 
-                  if pos == self.player_pos && dx != 0 && dy != 0 {
+                if dx != 0 && dy != 0 {
+                  if let Some(color) = self.pos_player_highlight_color(pos) {
                     fg = color::AnsiValue::grayscale(5);
-                    bg = Some(color::AnsiValue::rgb(2, 4, 3));
+                    bg = Some(color.into());
                   }
+                }
 
-                  let center = dx == self.xscale() / 2 && dy == self.yscale() / 2;
+                let center = dx == self.xscale() / 2 && dy == self.yscale() / 2;
 
-                  let draw = if dx == 0 && dy == 0 {
-                    Draw::new(self.cross_at(grid_pos))
-                  } else if dx == 0 {
-                    Draw::new(self.v_bar_at(grid_pos))
-                  } else if dy == 0 {
-                    Draw::new(self.h_bar_at(grid_pos))
-                  } else {
-                    let mut draw = match letter {
-                      XWordTile::Letter(c) => {
-                        if center {
-                          Draw::new(Self::char_display(c))
-                        } else {
-                          Draw::new(' ')
-                        }
+                let draw = if dx == 0 && dy == 0 {
+                  Draw::new(self.cross_at(grid_pos))
+                } else if dx == 0 {
+                  Draw::new(self.v_bar_at(grid_pos))
+                } else if dy == 0 {
+                  Draw::new(self.h_bar_at(grid_pos))
+                } else {
+                  let mut draw = match letter {
+                    XWordTile::Letter(c) => {
+                      if center {
+                        Draw::new(Self::char_display(c))
+                      } else {
+                        Draw::new(' ')
                       }
-                      XWordTile::Empty => Draw::new(' '),
-                      XWordTile::Wall => {
-                        fg = color::AnsiValue::grayscale(16);
-                        Draw::new(if dx == 1 {
-                          // ▐
-                          '\u{2590}'
-                        } else if dx == 2 {
-                          // █
-                          '\u{2588}'
-                        } else {
-                          // ▋
-                          '\u{258B}'
-                        })
-                      }
-                    };
-
-                    if center && self.should_highlight(grid_pos) {
-                      draw = draw.with_underline();
                     }
-                    draw
+                    XWordTile::Empty => Draw::new(' '),
+                    XWordTile::Wall => {
+                      fg = color::AnsiValue::grayscale(16);
+                      Draw::new(if dx == 1 {
+                        // ▐
+                        '\u{2590}'
+                      } else if dx == 2 {
+                        // █
+                        '\u{2588}'
+                      } else {
+                        // ▋
+                        '\u{258B}'
+                      })
+                    }
                   };
 
-                  let mut draw = draw.with_fg(fg).with_z(Z_IDX);
-                  if let Some(bg) = bg {
-                    draw = draw.with_bg(bg);
+                  if center && self.should_highlight(grid_pos) {
+                    draw = draw.with_underline();
                   }
-                  Some((draw, screen_pos))
-                })
+                  draw
+                };
+
+                let mut draw = draw.with_fg(fg).with_z(Z_IDX);
+                if let Some(bg) = bg {
+                  draw = draw.with_bg(bg);
+                }
+                Some((draw, screen_pos))
               })
             })
-            .chain((0..self.yscale()).map(move |dy| {
-              let grid_pos = Pos { x: self.width() as i32, y };
-              let tile = if y == 0 && dy == 0 {
-                // ┓
-                '\u{2513}'
-              } else if dy == 0 {
-                self.cross_at(grid_pos)
-              } else {
-                self.v_bar_at(grid_pos)
-              };
-              (
-                Draw::new(tile).with_fg(col).with_z(Z_IDX),
-                Pos {
-                  x: self.width() as i32 * self.xscale(),
-                  y: y * self.yscale() + dy,
-                },
-              )
-            }))
-        })
-        .chain((0..self.width() as i32).flat_map(move |x| {
-          (0..self.xscale()).map(move |dx| {
-            let grid_pos = Pos { x, y: self.height() as i32 };
-            let tile = if x == 0 && dx == 0 {
-              // ┗
-              '\u{2517}'
-            } else if dx == 0 {
+          })
+          .chain((0..self.yscale()).map(move |dy| {
+            let grid_pos = Pos { x: self.width() as i32, y };
+            let tile = if y == 0 && dy == 0 {
+              // ┓
+              '\u{2513}'
+            } else if dy == 0 {
               self.cross_at(grid_pos)
             } else {
-              self.h_bar_at(grid_pos)
+              self.v_bar_at(grid_pos)
             };
             (
               Draw::new(tile).with_fg(col).with_z(Z_IDX),
               Pos {
-                x: x * self.xscale() + dx,
-                y: self.height() as i32 * self.yscale(),
+                x: self.width() as i32 * self.xscale(),
+                y: y * self.yscale() + dy,
               },
             )
-          })
-        }))
-        .chain(iter::once((
-          Draw::new(
-            // ┛
-            '\u{251B}',
+          }))
+      })
+      .chain((0..self.width() as i32).flat_map(move |x| {
+        (0..self.xscale()).map(move |dx| {
+          let grid_pos = Pos { x, y: self.height() as i32 };
+          let tile = if x == 0 && dx == 0 {
+            // ┗
+            '\u{2517}'
+          } else if dx == 0 {
+            self.cross_at(grid_pos)
+          } else {
+            self.h_bar_at(grid_pos)
+          };
+          (
+            Draw::new(tile).with_fg(col).with_z(Z_IDX),
+            Pos {
+              x: x * self.xscale() + dx,
+              y: self.height() as i32 * self.yscale(),
+            },
           )
-          .with_fg(col)
-          .with_z(Z_IDX),
-          Pos {
-            x: self.width() as i32 * self.xscale(),
-            y: self.height() as i32 * self.yscale(),
-          },
-        ))),
-    )
+        })
+      }))
+      .chain(iter::once((
+        Draw::new(
+          // ┛
+          '\u{251B}',
+        )
+        .with_fg(col)
+        .with_z(Z_IDX),
+        Pos {
+          x: self.width() as i32 * self.xscale(),
+          y: self.height() as i32 * self.yscale(),
+        },
+      )))
   }
 
-  fn generate_compressed_view(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
+  fn generate_compressed_view(&self) -> impl Iterator<Item = (Draw, Pos)> + '_ {
     let col = color::AnsiValue::grayscale(20);
 
-    Box::new((0..self.height() as i32).flat_map(move |y| {
+    (0..self.height() as i32).flat_map(move |y| {
       (0..self.width() as i32).map(move |x| {
         let pos = Pos { x, y };
         let screen_pos = Pos { x: x * 2, y };
 
-        let tile = match self.grid.get(pos) {
-          Some(&XWordTile::Letter(c)) => Self::char_display(c),
-          Some(XWordTile::Wall) => 'X',
-          Some(XWordTile::Empty) => '_',
-          None => unreachable!(),
+        let tile = match self.crossword.tile(pos) {
+          Ok(&XWordTile::Letter(c)) => Self::char_display(c),
+          Ok(XWordTile::Wall) => 'X',
+          Ok(XWordTile::Empty) => '_',
+          Err(_) => unreachable!(),
         };
         let mut draw = Draw::new(tile).with_fg(col).with_z(Z_IDX);
 
-        if pos == self.player_pos {
+        if pos == self.player_info.player_pos() {
           draw = draw.with_fg(color::AnsiValue::rgb(5, 0, 3));
         }
 
         (draw, screen_pos)
       })
-    }))
+    })
+  }
+
+  fn generate_clues(
+    &self,
+    dimensions: &WindowDimensions,
+  ) -> impl Iterator<Item = (Draw, Pos)> + '_ {
+    self
+      .crossword
+      .clue_for_pos(self.player_info.player_pos(), true)
+      .and_then(|row_clue| {
+        self
+          .crossword
+          .clue_for_pos(self.player_info.player_pos(), false)
+          .map(|col_clue| (row_clue, col_clue))
+      })
+      .map(|(row_clue, col_clue)| {
+        let mut row_clue = TextBox::new(
+          Pos::zero(),
+          format!("{} across: {}", row_clue.clue_num, row_clue.clue_txt),
+          CLUE_LINE_LEN,
+        )
+        .with_fixed_width();
+
+        let mut col_clue = TextBox::new(
+          Pos {
+            x: 0,
+            y: -(row_clue.display_height() as i32 - 1),
+          },
+          format!("{} down: {}", col_clue.clue_num, col_clue.clue_txt),
+          CLUE_LINE_LEN,
+        )
+        .with_fixed_width();
+
+        let topleft_pos = dimensions.screen_dim()
+          - Pos {
+            x: row_clue.display_width().max(col_clue.display_width()) as i32,
+            y: (row_clue.display_height() + col_clue.display_height()) as i32 - 1,
+          };
+        let player_pos = self.player_screen_pos() - dimensions.camera_pos;
+
+        let draw_style = if player_pos.x + self.xscale() >= topleft_pos.x
+          && player_pos.y + self.yscale() >= topleft_pos.y
+        {
+          row_clue = row_clue.with_top_right_pos();
+          col_clue = col_clue.with_top_right_pos();
+          let diff = Diff {
+            x: 0,
+            y: col_clue.display_height() as i32 - 1,
+          };
+          row_clue.move_by(diff);
+          col_clue.move_by(diff);
+          DrawStyle::FixedPosTopRight
+        } else {
+          row_clue = row_clue.with_bottom_right_pos();
+          col_clue = col_clue.with_bottom_right_pos();
+          DrawStyle::FixedPosBottomRight
+        };
+
+        row_clue
+          .iterate_tiles(dimensions)
+          .chain(col_clue.iterate_tiles(dimensions))
+          .map(|(draw, pos)| (draw.with_draw_style(draw_style), pos))
+          .collect_vec()
+      })
+      .into_iter()
+      .flatten()
   }
 }
 
-impl Entity for Crossword {
-  fn iterate_tiles(&self) -> Box<dyn Iterator<Item = (Draw, Pos)> + '_> {
-    match self.view {
-      CrosswordView::Expanded => self.generate_expanded_view(),
-      CrosswordView::Compressed => self.generate_compressed_view(),
-    }
+impl Entity for CrosswordEntity {
+  fn iterate_tiles<'a>(
+    &'a self,
+    dimensions: &'a WindowDimensions,
+  ) -> Box<dyn Iterator<Item = (Draw, Pos)> + 'a> {
+    Box::new(
+      match self.view {
+        CrosswordView::Expanded => Variant2::Opt1(self.generate_expanded_view()),
+        CrosswordView::Compressed => Variant2::Opt2(self.generate_compressed_view()),
+      }
+      .chain(self.generate_clues(dimensions)),
+    )
   }
 
   fn as_any(&self) -> &dyn std::any::Any {
@@ -449,14 +611,19 @@ impl Entity for Crossword {
   }
 
   fn keypress(&mut self, key: Key) -> util::error::TermgameResult {
-    let mut player_pos = self.player_pos;
+    let mut player_pos = self.player_info.player_pos();
 
     match key {
       Key::Char(letter @ 'a'..='z') => {
         let tile = self.tile_mut(player_pos)?;
         match tile {
-          XWordTile::Empty => *tile = XWordTile::Letter(letter),
-          XWordTile::Letter(_) => *tile = XWordTile::Letter(letter),
+          XWordTile::Empty | XWordTile::Letter(_) => {
+            let new_tile = XWordTile::Letter(letter);
+            *tile = new_tile.clone();
+            self
+              .actions
+              .push(ClientMessage::TileUpdate { pos: player_pos, tile: new_tile });
+          }
           XWordTile::Wall => {}
         }
 
@@ -468,11 +635,21 @@ impl Entity for Crossword {
       Key::Backspace => {
         let tile = self.tile_mut(player_pos)?;
         match tile {
-          XWordTile::Letter(_) => *tile = XWordTile::Empty,
+          XWordTile::Letter(_) => {
+            *tile = XWordTile::Empty;
+
+            self
+              .actions
+              .push(ClientMessage::TileUpdate { pos: player_pos, tile: XWordTile::Empty });
+          }
           XWordTile::Empty => {
             player_pos = self.find_prev_free_tile(player_pos);
             let tile = self.tile_mut(player_pos)?;
             *tile = XWordTile::Empty;
+
+            self
+              .actions
+              .push(ClientMessage::TileUpdate { pos: player_pos, tile: XWordTile::Empty });
           }
           XWordTile::Wall => {}
         }
@@ -491,7 +668,11 @@ impl Entity for Crossword {
     }
 
     if self.can_move_to(player_pos) {
-      self.player_pos = player_pos;
+      self.player_info.player_info.pos = player_pos;
+      self.actions.push(ClientMessage::PositionUpdate {
+        uid: self.player_info.uid,
+        pos: player_pos,
+      });
     }
 
     Ok(())

@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use common::crossword::XWordCluePosition;
 use util::pos::Pos;
-
-use crate::xword::XWordCluePosition;
 
 #[derive(Clone, Debug)]
 pub struct WordBank {
