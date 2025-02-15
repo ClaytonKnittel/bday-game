@@ -95,7 +95,7 @@ async fn wait_for_refresh(
   }
 }
 
-async fn play(client: &mut Client, uid: u64) -> TermgameResult {
+async fn play(client: &mut Client, uid: u64, admin: bool) -> TermgameResult {
   client.send_message(ClientMessage::FullRefresh).await?;
   let (crossword, player_info) = wait_for_refresh(client).await?;
 
@@ -149,6 +149,14 @@ async fn play(client: &mut Client, uid: u64) -> TermgameResult {
     }
 
     for action in xword.take_actions() {
+      if !admin {
+        match action {
+          ClientMessage::CheckTile { pos: _ } | ClientMessage::CycleClue { pos: _, is_row: _ } => {
+            continue
+          }
+          _ => {}
+        }
+      }
       client.send_message(action).await?;
     }
 
@@ -170,11 +178,11 @@ async fn play(client: &mut Client, uid: u64) -> TermgameResult {
   Ok(())
 }
 
-pub async fn play_puzzle() -> TermgameResult {
+pub async fn play_puzzle(admin: bool) -> TermgameResult {
   let mut client = Client::new().await?;
   let uid = load_player_info(&mut client).await?;
 
-  let result = play(&mut client, uid).await;
+  let result = play(&mut client, uid, admin).await;
 
   let uid_write_result = write_uid(uid).await;
   result.and(uid_write_result)
