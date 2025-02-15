@@ -5,7 +5,7 @@ use std::{process::ExitCode, sync::Arc, time::Duration};
 
 use common::{
   config::PORT,
-  crossword::{Crossword, XWordTile},
+  crossword::Crossword,
   msg::{read_message_from_wire, DecodeMessageResult},
   util::AsyncWriteT,
 };
@@ -45,7 +45,9 @@ where
     sleep(Duration::from_secs(5)).await;
     let mut server_state = server_state.lock().await;
     server_state.cleanup_dead_clients().await;
-    save_scratch(server_state.scratch()).await?;
+    if let Some(scratch) = server_state.scratch() {
+      save_scratch(scratch).await?;
+    }
   }
 }
 
@@ -53,8 +55,12 @@ async fn read_dict() -> TermgameResult<XWordDict> {
   Ok(bitcode::decode(&fs::read(DICT_PATH).await?)?)
 }
 
-async fn load_crossword() -> TermgameResult<(Crossword, Crossword)> {
+async fn load_crossword() -> TermgameResult<Option<(Crossword, Crossword)>> {
   let dict = read_dict().await?;
+  if !fs::try_exists(XWORD_PATH).await? {
+    return Ok(None);
+  }
+
   let crossword = Crossword::make_clues(bitcode::decode(&fs::read(XWORD_PATH).await?)?, &dict)?;
 
   let scratch = fs::read(XWORD_SCRATCH_PATH)
@@ -67,7 +73,7 @@ async fn load_crossword() -> TermgameResult<(Crossword, Crossword)> {
     })
     .unwrap_or_else(|_| Ok(crossword.clone_clearing_tiles()))?;
 
-  Ok((crossword, scratch))
+  Ok(Some((crossword, scratch)))
 }
 
 async fn save_scratch(scratch: &Crossword) -> TermgameResult {
@@ -81,8 +87,12 @@ async fn run_server() -> TermgameResult {
   let addr = format!("127.0.0.1:{PORT}");
   let listener = TcpListener::bind(addr).await?;
 
-  let (crossword, scratch) = load_crossword().await?;
-  let server_state = Arc::new(Mutex::new(ServerState::with_crossword(crossword, scratch)));
+  let state = if let Some((crossword, scratch)) = load_crossword().await? {
+    ServerState::with_crossword(crossword, scratch)
+  } else {
+    ServerState::new()
+  };
+  let server_state = Arc::new(Mutex::new(state));
 
   {
     let server_state = server_state.clone();

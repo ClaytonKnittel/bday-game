@@ -5,7 +5,9 @@ mod client;
 mod crossword;
 mod interactive_grid;
 mod pc;
+mod q_prompt;
 mod run_game;
+mod screen_manager;
 mod textbox;
 
 use std::{

@@ -41,6 +41,7 @@ pub enum ServerMessage {
     pos: Pos,
     tile: XWordTile,
   },
+  OnClue,
   FullRefresh {
     crossword: CrosswordEncoding,
     player_info: HashMap<u64, PlayerInfo>,

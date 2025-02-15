@@ -15,7 +15,7 @@ use util::{
   error::{TermgameError, TermgameResult},
 };
 
-use crate::{client::Client, crossword::CrosswordEntity};
+use crate::{client::Client, crossword::CrosswordEntity, screen_manager::ScreenManager};
 
 const SYNC_PERIOD: usize = 5 * 50;
 
@@ -80,12 +80,15 @@ async fn load_player_info(client: &mut Client) -> TermgameResult<u64> {
 
 async fn wait_for_refresh(
   client: &mut Client,
-) -> TermgameResult<(Crossword, HashMap<u64, PlayerInfo>)> {
+) -> TermgameResult<Option<(Crossword, HashMap<u64, PlayerInfo>)>> {
   loop {
     if let Some(message) = client.recv_server_message().await {
       match message {
         ServerMessage::FullRefresh { crossword, player_info } => {
-          return Ok((crossword.into(), player_info))
+          return Ok(Some((crossword.into(), player_info)));
+        }
+        ServerMessage::OnClue => {
+          return Ok(None);
         }
         _ => continue,
       }
@@ -97,16 +100,18 @@ async fn wait_for_refresh(
 
 async fn play(client: &mut Client, uid: u64, admin: bool) -> TermgameResult {
   client.send_message(ClientMessage::FullRefresh).await?;
-  let (crossword, player_info) = wait_for_refresh(client).await?;
 
-  let mut ev = EventLoop::new()?;
-  let xword_uid = ev
-    .scene()
-    .add_entity(Box::new(CrosswordEntity::with_crossword_and_player_info(
+  let mut manager = ScreenManager::new();
+  if let Some((crossword, player_info)) = wait_for_refresh(client).await? {
+    manager.start_crossword(CrosswordEntity::with_crossword_and_player_info(
       crossword,
       player_info,
       uid,
-    )));
+    ));
+  }
+
+  let mut ev = EventLoop::new()?;
+  let manager_uid = ev.scene().add_entity(Box::new(manager));
 
   let mut ev_iter = ev.async_event_loop();
   for t in 0usize.. {
@@ -115,64 +120,91 @@ async fn play(client: &mut Client, uid: u64, admin: bool) -> TermgameResult {
     }
 
     let scene = ev.scene();
-    let xword: &mut CrosswordEntity = scene.entity_mut(xword_uid)?;
+    let manager: &mut ScreenManager = scene.entity_mut(manager_uid)?;
 
     if t % SYNC_PERIOD == 0 {
       client.send_message(ClientMessage::FullRefresh).await?;
     }
 
     for message in client.pending_server_messages() {
+      let mut xword = if let ScreenManager::Crossword(xword) = manager {
+        Some(xword)
+      } else {
+        None
+      };
+
       match message? {
         ServerMessage::NewConnection { uid: _ } => {}
         ServerMessage::ConnectToExisting { success: _ } => {}
         ServerMessage::PlayerPositionUpdate { uid, pos } => {
-          xword.player_info_manager_mut().update_player_pos(uid, pos);
+          if let Some(xword) = &mut xword {
+            xword.player_info_manager_mut().update_player_pos(uid, pos);
+          }
         }
         ServerMessage::TileUpdate { pos, tile } => {
-          if let Ok(xword_tile) = xword.tile_mut(pos) {
-            *xword_tile = tile;
+          if let Some(xword) = &mut xword {
+            if let Ok(xword_tile) = xword.tile_mut(pos) {
+              *xword_tile = tile;
+            }
           }
         }
         ServerMessage::CheckTile { pos, tile } => {
-          if let Ok(xword_tile) = xword.tile(pos) {
-            if *xword_tile != tile {
-              xword.mark_wrong_answer(pos);
+          if let Some(xword) = &mut xword {
+            if let Ok(xword_tile) = xword.tile(pos) {
+              if *xword_tile != tile {
+                xword.mark_wrong_answer(pos);
+              }
             }
           }
         }
         ServerMessage::FullRefresh { crossword, player_info } => {
-          xword.swap_for(crossword.into());
-          xword.refresh_player_info(player_info);
+          if let Some(xword) = &mut xword {
+            xword.swap_for(crossword.into());
+            xword.refresh_player_info(player_info);
+          } else {
+            manager.start_crossword(CrosswordEntity::with_crossword_and_player_info(
+              crossword.into(),
+              player_info,
+              uid,
+            ));
+          }
         }
+        ServerMessage::OnClue => {}
         ServerMessage::Ping => {}
       }
     }
 
-    for action in xword.take_actions() {
-      if !admin {
-        match action {
-          ClientMessage::CheckTile { pos: _ } | ClientMessage::CycleClue { pos: _, is_row: _ } => {
-            continue
+    let mut xword = if let ScreenManager::Crossword(xword) = manager {
+      Some(xword)
+    } else {
+      None
+    };
+    if let Some(xword) = &mut xword {
+      for action in xword.take_actions() {
+        if !admin {
+          match action {
+            ClientMessage::CheckTile { pos: _ }
+            | ClientMessage::CycleClue { pos: _, is_row: _ } => continue,
+            _ => {}
           }
-          _ => {}
         }
+        client.send_message(action).await?;
       }
-      client.send_message(action).await?;
+
+      let (screen_width, screen_height) = (xword.screen_width(), xword.screen_height());
+      let pos = xword.player_screen_pos();
+
+      let window = ev.window();
+      let (width, height) = (window.width() as i32, window.height() as i32);
+      let camera_pos = window.camera_pos_mut();
+
+      camera_pos.x = (pos.x - width / 2)
+        .max(0)
+        .min(screen_width.saturating_sub(width as u32) as i32);
+      camera_pos.y = (pos.y - height / 2)
+        .max(0)
+        .min(screen_height.saturating_sub(height as u32) as i32);
     }
-
-    let (screen_width, screen_height) = (xword.screen_width(), xword.screen_height());
-    let pos = xword.player_screen_pos();
-
-    let window = ev.window();
-    let (width, height) = (window.width() as i32, window.height() as i32);
-    let camera_pos = window.camera_pos_mut();
-
-    camera_pos.x = (pos.x - width / 2)
-      .max(0)
-      .min(screen_width.saturating_sub(width as u32) as i32);
-    camera_pos.y = (pos.y - height / 2)
-      .max(0)
-      .min(screen_height.saturating_sub(height as u32) as i32);
   }
 
   Ok(())

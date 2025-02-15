@@ -24,9 +24,16 @@ enum Action {
   Broadcast(ServerMessage),
 }
 
+enum State {
+  Prompt,
+  Crossword {
+    crossword_answers: Crossword,
+    scratch: Crossword,
+  },
+}
+
 pub struct ServerState<W> {
-  crossword_answers: Crossword,
-  scratch: Crossword,
+  state: State,
   clients: HashMap<u64, ClientContext<W>>,
   next_uid: u64,
 }
@@ -35,17 +42,49 @@ impl<W> ServerState<W>
 where
   W: AsyncWriteT,
 {
-  pub fn with_crossword(crossword_answers: Crossword, scratch: Crossword) -> Self {
+  pub fn new() -> Self {
     Self {
-      crossword_answers,
-      scratch,
+      state: State::Prompt,
       clients: HashMap::new(),
       next_uid: 0,
     }
   }
 
-  pub fn scratch(&self) -> &Crossword {
-    &self.scratch
+  pub fn make_crossword(&mut self) -> TermgameResult {
+    todo!();
+    Ok(())
+  }
+
+  pub fn with_crossword(crossword_answers: Crossword, scratch: Crossword) -> Self {
+    Self {
+      state: State::Crossword { crossword_answers, scratch },
+      clients: HashMap::new(),
+      next_uid: 0,
+    }
+  }
+
+  pub fn scratch(&self) -> Option<&Crossword> {
+    if let State::Crossword { scratch, .. } = &self.state {
+      Some(scratch)
+    } else {
+      None
+    }
+  }
+
+  pub fn scratch_mut(&mut self) -> Option<&mut Crossword> {
+    if let State::Crossword { scratch, .. } = &mut self.state {
+      Some(scratch)
+    } else {
+      None
+    }
+  }
+
+  pub fn crossword_answers(&self) -> Option<&Crossword> {
+    if let State::Crossword { crossword_answers, .. } = &self.state {
+      Some(crossword_answers)
+    } else {
+      None
+    }
   }
 
   fn assign_new_uid(&mut self) -> u64 {
@@ -175,7 +214,10 @@ where
       return Err(TermgameError::Internal("Cannot place wall tiles".to_owned()).into());
     }
 
-    let xword_tile = self.scratch.tile_mut(pos)?;
+    let xword_tile = self
+      .scratch_mut()
+      .ok_or_else(|| TermgameError::Internal("Not in crossword state".to_owned()))?
+      .tile_mut(pos)?;
     match xword_tile {
       XWordTile::Empty | XWordTile::Letter(_) => {
         *xword_tile = tile.clone();
@@ -191,18 +233,24 @@ where
   }
 
   async fn check_tile(&mut self, pos: Pos) -> TermgameResult<impl Iterator<Item = Action>> {
-    Ok(if let Ok(tile) = self.crossword_answers.tile(pos) {
-      let response = ServerMessage::CheckTile { pos, tile: tile.clone() };
-      Variant2::Opt1(
-        [
-          Action::Respond(response.clone()),
-          Action::Broadcast(response),
-        ]
-        .into_iter(),
-      )
-    } else {
-      Variant2::Opt2(empty())
-    })
+    Ok(
+      if let Ok(tile) = self
+        .crossword_answers()
+        .ok_or_else(|| TermgameError::Internal("Not in crossword state".to_owned()))?
+        .tile(pos)
+      {
+        let response = ServerMessage::CheckTile { pos, tile: tile.clone() };
+        Variant2::Opt1(
+          [
+            Action::Respond(response.clone()),
+            Action::Broadcast(response),
+          ]
+          .into_iter(),
+        )
+      } else {
+        Variant2::Opt2(empty())
+      },
+    )
   }
 
   async fn cycle_clue(
@@ -210,7 +258,11 @@ where
     pos: Pos,
     is_row: bool,
   ) -> TermgameResult<impl Iterator<Item = Action>> {
-    if let Some(clue) = self.scratch.clue_for_pos_mut(pos, is_row) {
+    if let Some(clue) = self
+      .scratch_mut()
+      .ok_or_else(|| TermgameError::Internal("Not in crossword state".to_owned()))?
+      .clue_for_pos_mut(pos, is_row)
+    {
       let clue_entries = clue
         .clue_entries
         .iter()
@@ -227,14 +279,20 @@ where
   }
 
   async fn full_refresh(&self) -> TermgameResult<impl Iterator<Item = Action>> {
-    Ok(once(Action::Respond(ServerMessage::FullRefresh {
-      crossword: self.scratch.clone().into(),
-      player_info: self
-        .all_connections()
-        .filter(|(_, connection)| connection.is_live())
-        .map(|(&uid, connection)| (uid, connection.player_info().clone()))
-        .collect(),
-    })))
+    if let Some(scratch) = self.scratch() {
+      Ok(Variant2::Opt1(once(Action::Respond(
+        ServerMessage::FullRefresh {
+          crossword: scratch.clone().into(),
+          player_info: self
+            .all_connections()
+            .filter(|(_, connection)| connection.is_live())
+            .map(|(&uid, connection)| (uid, connection.player_info().clone()))
+            .collect(),
+        },
+      ))))
+    } else {
+      Ok(Variant2::Opt2(once(Action::Respond(ServerMessage::OnClue))))
+    }
   }
 
   pub async fn respond_to_message(
