@@ -7,6 +7,7 @@ mod interactive_grid;
 mod manager;
 mod pc;
 mod run_game;
+mod textbox;
 
 use std::{
   collections::{HashMap, HashSet},
