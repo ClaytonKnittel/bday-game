@@ -21,11 +21,11 @@ enum CrosswordView {
   Compressed,
 }
 
-struct PlayerInfoManager {
+pub struct PlayerInfoManager {
   uid: u64,
   player_info: PlayerInfo,
   other_player_info: HashMap<u64, PlayerInfo>,
-  other_player_pos_map: HashMap<Pos, u64>,
+  other_player_pos_map: HashMap<Pos, Vec<u64>>,
 }
 
 impl PlayerInfoManager {
@@ -48,15 +48,36 @@ impl PlayerInfoManager {
       self.player_info = player_info;
     }
     self.other_player_info = player_info;
-    self.other_player_pos_map = self
-      .other_player_info
-      .iter()
-      .map(|(uid, PlayerInfo { pos, .. })| (*pos, *uid))
-      .collect();
+
+    self.other_player_pos_map.clear();
+    for (uid, PlayerInfo { pos, .. }) in self.other_player_info.iter() {
+      self
+        .other_player_pos_map
+        .entry(*pos)
+        .or_default()
+        .push(*uid);
+    }
   }
 
   fn player_pos(&self) -> Pos {
     self.player_info.pos
+  }
+
+  pub fn update_player_pos(&mut self, uid: u64, pos: Pos) {
+    if let Some(player_info) = self.other_player_info.get_mut(&uid) {
+      let old_pos = player_info.pos;
+      player_info.pos = pos;
+
+      if let Some(poses) = self.other_player_pos_map.get_mut(&old_pos) {
+        if let Some(idx) = poses.iter().position(|other_uid| *other_uid == uid) {
+          poses.remove(idx);
+          if poses.is_empty() {
+            self.other_player_pos_map.remove(&pos);
+          }
+        }
+      }
+    }
+    self.other_player_pos_map.entry(pos).or_default().push(uid);
   }
 }
 
@@ -101,8 +122,8 @@ impl CrosswordEntity {
     self.crossword = xword;
   }
 
-  pub fn other_player_info_mut(&mut self, uid: u64) -> Option<&mut PlayerInfo> {
-    self.player_info.other_player_info.get_mut(&uid)
+  pub fn player_info_manager_mut(&mut self) -> &mut PlayerInfoManager {
+    &mut self.player_info
   }
 
   pub fn refresh_player_info(&mut self, player_info: HashMap<u64, PlayerInfo>) {
@@ -165,6 +186,7 @@ impl CrosswordEntity {
         .player_info
         .other_player_pos_map
         .get(&pos)
+        .and_then(|uid| uid.first())
         .and_then(|uid| {
           self
             .player_info

@@ -52,9 +52,7 @@ pub async fn play_puzzle() -> TermgameResult {
         ServerMessage::NewConnection { uid: _ } => {}
         ServerMessage::ConnectToExisting { success: _ } => {}
         ServerMessage::PlayerPositionUpdate { uid, pos } => {
-          if let Some(player_info) = xword.other_player_info_mut(uid) {
-            player_info.pos = pos;
-          }
+          xword.player_info_manager_mut().update_player_pos(uid, pos);
         }
         ServerMessage::FullRefresh { crossword, player_info } => {
           xword.swap_for(crossword.into());
