@@ -1,44 +1,42 @@
-use std::process::ExitCode;
+mod client_context;
+mod server_state;
+
+use std::{process::ExitCode, sync::Arc};
 
 use common::{
   config::PORT,
-  msg::{
-    read_message_from_wire, write_message_to_wire, ClientMessage, DecodeMessageResult,
-    ServerMessage,
-  },
+  msg::{read_message_from_wire, DecodeMessageResult},
 };
-use tokio::net::{TcpListener, TcpStream};
+use server_state::ServerState;
+use tokio::{
+  net::{TcpListener, TcpStream},
+  sync::Mutex,
+};
 use util::error::TermgameResult;
 
-async fn respond_to_message(stream: &mut TcpStream, message: ClientMessage) -> TermgameResult {
-  println!("Message: {message:?}");
-  write_message_to_wire(
-    stream,
-    ServerMessage::TestServerMessage("hi guy".to_owned()),
-  )
-  .await?;
-  Ok(())
-}
-
-async fn handle_connection(mut stream: TcpStream) -> TermgameResult {
+async fn handle_connection(
+  mut stream: TcpStream,
+  state: Arc<Mutex<ServerState>>,
+) -> TermgameResult {
   while let DecodeMessageResult::Message(message) = read_message_from_wire(&mut stream).await? {
-    respond_to_message(&mut stream, message).await?;
+    let mut state = state.lock().await;
+    state.respond_to_message(&mut stream, message).await?;
   }
   Ok(())
 }
 
 async fn run_server() -> TermgameResult {
   let addr = format!("127.0.0.1:{PORT}");
-
-  // let socket = TcpSocket::new_v4()?;
-  // let stream = socket.connect(addr).await?;
   let listener = TcpListener::bind(addr).await?;
+
+  let server_state = Arc::new(Mutex::new(ServerState::new()));
 
   loop {
     let (stream, _) = listener.accept().await?;
+    let server_state = server_state.clone();
 
     tokio::spawn(async move {
-      let result = handle_connection(stream);
+      let result = handle_connection(stream, server_state);
       if let Err(err) = result.await {
         println!("Connection error: {err}");
       }

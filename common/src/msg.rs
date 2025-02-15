@@ -4,12 +4,14 @@ use util::error::TermgameResult;
 
 #[derive(Debug, Encode, Decode)]
 pub enum ClientMessage {
-  TestMessage(String),
+  NewConnection,
+  ConnectToExisting { uid: u64 },
 }
 
 #[derive(Debug, Encode, Decode)]
 pub enum ServerMessage {
-  TestServerMessage(String),
+  NewConnection { uid: u64 },
+  ConnectToExisting,
 }
 
 pub async fn write_message_to_wire<T>(

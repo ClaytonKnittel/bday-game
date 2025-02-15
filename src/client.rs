@@ -2,10 +2,7 @@ use std::iter;
 
 use common::{
   config::PORT,
-  msg::{
-    read_message_from_wire, write_message_to_wire, ClientMessage, DecodeMessageResult,
-    ServerMessage,
-  },
+  msg::{read_message_from_wire, DecodeMessageResult, ServerMessage},
 };
 use tokio::{
   net::{
@@ -71,13 +68,9 @@ impl Client {
     Ok(Self { stream: wstream, rx })
   }
 
-  pub async fn write_test(&mut self) -> TermgameResult {
-    let msg = ClientMessage::TestMessage("Hello guyz!".to_owned());
-    write_message_to_wire(&mut self.stream, msg).await?;
-    Ok(())
-  }
-
-  pub fn iter_messages(&mut self) -> impl Iterator<Item = TermgameResult<ServerMessage>> + '_ {
+  pub fn pending_server_messages(
+    &mut self,
+  ) -> impl Iterator<Item = TermgameResult<ServerMessage>> + '_ {
     iter::once(())
       .cycle()
       .map_while(|_| match self.rx.try_recv() {

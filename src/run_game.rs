@@ -22,14 +22,10 @@ pub async fn play_puzzle() -> TermgameResult {
     let scene = ev.scene();
     let xword: &mut Crossword = scene.entity_mut(xword_uid)?;
 
-    if t % 30 == 0 {
-      client.write_test().await?;
-    }
-    for message in client.iter_messages() {
+    for message in client.pending_server_messages() {
       match message? {
-        ServerMessage::TestServerMessage(_) => {
-          // TODO
-        }
+        ServerMessage::NewConnection { uid } => {}
+        ServerMessage::ConnectToExisting => {}
       }
     }
 
