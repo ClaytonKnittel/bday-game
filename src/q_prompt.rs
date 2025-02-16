@@ -52,7 +52,14 @@ impl Entity for QPrompt {
         .question
         .iterate_tiles(window_dimensions)
         .chain(self.answer.iterate_tiles(window_dimensions))
-        .chain(self.clue.iterate_tiles(window_dimensions)),
+        .chain(self.clue.iterate_tiles(window_dimensions))
+        .chain([(
+          Draw::new('>').with_z(100),
+          Pos {
+            x: 10,
+            y: 11 + if self.on_answer { 0 } else { 2 },
+          },
+        )]),
     )
   }
 
@@ -74,12 +81,12 @@ impl Entity for QPrompt {
       }
       Key::Char(letter) => {
         if self.on_answer {
-          if letter.is_ascii_lowercase() {
+          if letter.is_ascii_alphabetic() {
             let text = self.answer.text_mut();
             if let Some(idx) = text.chars().position(|c| c == '_') {
               let (lh, rh) = text.split_at(idx);
               let mut new_text = lh.to_owned();
-              new_text.push(letter);
+              new_text.push(letter.to_ascii_lowercase());
               new_text.push_str(&rh[1..]);
               *text = new_text;
             }
