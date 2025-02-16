@@ -17,6 +17,10 @@ impl TextBox {
     Self { src, text, line_len, fixed_width: false }
   }
 
+  pub fn text_mut(&mut self) -> &mut String {
+    &mut self.text
+  }
+
   pub fn with_top_right_pos(self) -> Self {
     Self {
       src: self.src

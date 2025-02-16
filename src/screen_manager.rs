@@ -1,4 +1,5 @@
-use termgame::entity::Entity;
+use termgame::{entity::Entity, Key};
+use util::error::TermgameResult;
 
 use crate::{crossword::CrosswordEntity, q_prompt::QPrompt};
 
@@ -34,5 +35,12 @@ impl Entity for ScreenManager {
   }
   fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
     self
+  }
+
+  fn keypress(&mut self, key: Key) -> TermgameResult {
+    match self {
+      Self::Prompt(q) => q.keypress(key),
+      Self::Crossword(c) => c.keypress(key),
+    }
   }
 }

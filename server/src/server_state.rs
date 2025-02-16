@@ -5,6 +5,7 @@ use std::{
 };
 
 use common::{
+  config::MAX_CLUE_LEN,
   crossword::{Crossword, XWordTile},
   msg::{write_message_to_wire, ClientMessage, ServerMessage},
   util::AsyncWriteT,
@@ -256,7 +257,10 @@ where
     word: String,
     clue: String,
   ) -> TermgameResult<impl Iterator<Item = Action>> {
-    if word.len() >= 3 && word.len() <= 12 && word.chars().all(|c| c.is_ascii_alphabetic()) {
+    if word.len() >= 3
+      && word.len() <= MAX_CLUE_LEN as usize
+      && word.chars().all(|c| c.is_ascii_alphabetic())
+    {
       match &mut self.state {
         State::Prompt { clue_map } => {
           clue_map.insert(uid, (word.to_ascii_lowercase(), clue));
