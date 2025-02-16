@@ -1,3 +1,4 @@
+use common::msg::ClientMessage;
 use termgame::{entity::Entity, Key};
 use util::error::TermgameResult;
 
@@ -10,12 +11,19 @@ pub enum ScreenManager {
 }
 
 impl ScreenManager {
-  pub fn new() -> Self {
-    Self::Prompt(QPrompt::new())
+  pub fn new(uid: u64) -> Self {
+    Self::Prompt(QPrompt::new(uid))
   }
 
   pub fn start_crossword(&mut self, crossword: CrosswordEntity) {
     *self = Self::Crossword(crossword)
+  }
+
+  pub fn take_actions(&mut self) -> Vec<ClientMessage> {
+    match self {
+      Self::Prompt(q) => q.take_actions(),
+      Self::Crossword(c) => c.take_actions(),
+    }
   }
 }
 

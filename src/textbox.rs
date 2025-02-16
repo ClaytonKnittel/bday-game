@@ -17,6 +17,10 @@ impl TextBox {
     Self { src, text, line_len, fixed_width: false }
   }
 
+  pub fn text(&self) -> &String {
+    &self.text
+  }
+
   pub fn text_mut(&mut self) -> &mut String {
     &mut self.text
   }

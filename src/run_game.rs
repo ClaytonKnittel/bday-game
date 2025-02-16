@@ -101,7 +101,7 @@ async fn wait_for_refresh(
 async fn play(client: &mut Client, uid: u64, admin: bool) -> TermgameResult {
   client.send_message(ClientMessage::FullRefresh).await?;
 
-  let mut manager = ScreenManager::new();
+  let mut manager = ScreenManager::new(uid);
   if let Some((crossword, player_info)) = wait_for_refresh(client).await? {
     manager.start_crossword(CrosswordEntity::with_crossword_and_player_info(
       crossword,
@@ -174,23 +174,24 @@ async fn play(client: &mut Client, uid: u64, admin: bool) -> TermgameResult {
       }
     }
 
+    for action in manager.take_actions() {
+      if !admin {
+        match action {
+          ClientMessage::CheckTile { pos: _ }
+          | ClientMessage::CycleClue { pos: _, is_row: _ }
+          | ClientMessage::BuildXWord => continue,
+          _ => {}
+        }
+      }
+      client.send_message(action).await?;
+    }
+
     let mut xword = if let ScreenManager::Crossword(xword) = manager {
       Some(xword)
     } else {
       None
     };
     if let Some(xword) = &mut xword {
-      for action in xword.take_actions() {
-        if !admin {
-          match action {
-            ClientMessage::CheckTile { pos: _ }
-            | ClientMessage::CycleClue { pos: _, is_row: _ } => continue,
-            _ => {}
-          }
-        }
-        client.send_message(action).await?;
-      }
-
       let (screen_width, screen_height) = (xword.screen_width(), xword.screen_height());
       let pos = xword.player_screen_pos();
 

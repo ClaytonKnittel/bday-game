@@ -1,21 +1,24 @@
-use std::any::Any;
+use std::{any::Any, mem};
 
-use common::config::MAX_CLUE_LEN;
+use common::{config::MAX_CLUE_LEN, msg::ClientMessage};
 use termgame::{draw::Draw, entity::Entity, window::WindowDimensions, Key};
 use util::{error::TermgameResult, pos::Pos};
 
 use crate::textbox::TextBox;
 
 pub struct QPrompt {
+  uid: u64,
   question: TextBox,
   answer: TextBox,
   clue: TextBox,
   on_answer: bool,
+  actions: Vec<ClientMessage>,
 }
 
 impl QPrompt {
-  pub fn new() -> Self {
+  pub fn new(uid: u64) -> Self {
     Self {
+      uid,
       question: TextBox::new(
         Pos { x: 10, y: 10 },
         "Enter a custom clue and answer:".to_owned(),
@@ -28,7 +31,14 @@ impl QPrompt {
       ),
       clue: TextBox::new(Pos { x: 10, y: 14 }, "".to_owned(), 50),
       on_answer: true,
+      actions: vec![],
     }
+  }
+
+  pub fn take_actions(&mut self) -> Vec<ClientMessage> {
+    let mut actions = vec![];
+    mem::swap(&mut actions, &mut self.actions);
+    actions
   }
 }
 
@@ -59,6 +69,9 @@ impl Entity for QPrompt {
         self.on_answer = !self.on_answer;
       }
       Key::Char('\n') => {}
+      Key::Char('`') => {
+        self.actions.push(ClientMessage::BuildXWord);
+      }
       Key::Char(letter) => {
         if self.on_answer {
           if letter.is_ascii_lowercase() {
@@ -94,6 +107,18 @@ impl Entity for QPrompt {
       }
       _ => {}
     }
+
+    let answer = if let Some((lh, _)) = self.answer.text().split_once('_') {
+      lh.to_owned()
+    } else {
+      self.answer.text().clone()
+    };
+
+    self.actions.push(ClientMessage::MakeClue {
+      uid: self.uid,
+      word: answer,
+      clue: self.clue.text().clone(),
+    });
 
     Ok(())
   }
