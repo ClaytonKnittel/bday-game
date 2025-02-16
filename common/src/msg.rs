@@ -13,11 +13,30 @@ use crate::{
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum ClientMessage {
   NewConnection,
-  ConnectToExisting { uid: u64 },
-  PositionUpdate { uid: u64, pos: Pos },
-  TileUpdate { pos: Pos, tile: XWordTile },
-  CheckTile { pos: Pos },
-  CycleClue { pos: Pos, is_row: bool },
+  ConnectToExisting {
+    uid: u64,
+  },
+  MakeClue {
+    uid: u64,
+    word: String,
+    clue: String,
+  },
+  BuildXWord,
+  PositionUpdate {
+    uid: u64,
+    pos: Pos,
+  },
+  TileUpdate {
+    pos: Pos,
+    tile: XWordTile,
+  },
+  CheckTile {
+    pos: Pos,
+  },
+  CycleClue {
+    pos: Pos,
+    is_row: bool,
+  },
   FullRefresh,
 }
 

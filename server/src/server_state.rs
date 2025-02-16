@@ -10,14 +10,42 @@ use common::{
   util::AsyncWriteT,
 };
 use itertools::Itertools;
-use tokio::sync::Mutex;
+use tokio::{
+  fs::{self, File},
+  io::AsyncWriteExt,
+  sync::Mutex,
+};
 use util::{
+  bitcode,
   error::{TermgameError, TermgameResult},
+  grid::Grid,
   pos::Pos,
+  time::time_fn,
   variant::Variant2,
 };
+use xword_dict::XWordDict;
+use xword_gen::xword::{XWordTraits, XWordWithRequired};
 
 use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
+
+pub const XWORD_PATH: &str = "./crossword.bin";
+pub const XWORD_SCRATCH_PATH: &str = "./crossword_scratch.bin";
+pub const DICT_PATH: &str = "../xword_gen/dict.bin";
+
+pub async fn read_dict() -> TermgameResult<XWordDict> {
+  Ok(bitcode::decode(&fs::read(DICT_PATH).await?)?)
+}
+
+async fn mega() -> TermgameResult<Grid<XWordTile>> {
+  Ok(bitcode::decode(&fs::read("../grid.bin").await?)?)
+}
+
+async fn save_crossword(crossword: &Crossword) -> TermgameResult {
+  let result = bitcode::encode(crossword.grid());
+  let mut file = File::create(XWORD_SCRATCH_PATH).await?;
+  file.write_all(&result).await?;
+  Ok(())
+}
 
 enum Action {
   Respond(ServerMessage),
@@ -26,7 +54,9 @@ enum Action {
 
 #[allow(clippy::large_enum_variant)]
 enum State {
-  Prompt,
+  Prompt {
+    clue_map: HashMap<u64, (String, String)>,
+  },
   Crossword {
     crossword_answers: Crossword,
     scratch: Crossword,
@@ -45,15 +75,41 @@ where
 {
   pub fn new() -> Self {
     Self {
-      state: State::Prompt,
+      state: State::Prompt { clue_map: HashMap::new() },
       clients: HashMap::new(),
       next_uid: 0,
     }
   }
 
-  pub fn make_crossword(&mut self) -> TermgameResult {
-    todo!();
-    Ok(())
+  pub async fn make_crossword(
+    &mut self,
+    clue_map: HashMap<u64, (String, String)>,
+  ) -> TermgameResult<Option<Crossword>> {
+    let dict = read_dict().await?;
+    let mut words: Vec<_> = dict
+      .top_n_words(160_000)
+      .into_iter()
+      .map(|word| word.to_owned())
+      .collect_vec();
+
+    let required_words = clue_map.into_values().map(|(word, _)| word).collect_vec();
+    words.extend(required_words.iter().cloned());
+    println!("Making crossword with {required_words:?}");
+
+    let xword = XWordWithRequired::from_grid(mega().await?, required_words, words)?;
+
+    let (time, solution) = time_fn(|| xword.solve());
+
+    let solution = solution?;
+    println!("Took {}s", time.as_secs_f32());
+
+    if let Some(solution) = solution {
+      let crossword = Crossword::make_clues(solution, &dict)?;
+      Ok(Some(crossword))
+    } else {
+      println!("No solution!");
+      Ok(None)
+    }
   }
 
   pub fn with_crossword(crossword_answers: Crossword, scratch: Crossword) -> Self {
@@ -194,6 +250,37 @@ where
     })))
   }
 
+  async fn make_clue(
+    &mut self,
+    uid: u64,
+    word: String,
+    clue: String,
+  ) -> TermgameResult<impl Iterator<Item = Action>> {
+    if word.len() >= 3 && word.len() <= 12 && word.chars().all(|c| c.is_ascii_alphabetic()) {
+      match &mut self.state {
+        State::Prompt { clue_map } => {
+          clue_map.insert(uid, (word.to_ascii_lowercase(), clue));
+        }
+        _ => {
+          println!("Unexpected make clue from {uid}!");
+        }
+      }
+    }
+    Ok(empty())
+  }
+
+  async fn build_xword(&mut self) -> TermgameResult<impl Iterator<Item = Action>> {
+    if let State::Prompt { clue_map } = &self.state {
+      if let Some(crossword) = self.make_crossword(clue_map.clone()).await? {
+        save_crossword(&crossword).await?;
+        let scratch = crossword.clone_clearing_tiles();
+        self.state = State::Crossword { crossword_answers: crossword, scratch }
+      }
+    }
+
+    Ok(empty())
+  }
+
   async fn position_update(
     &mut self,
     uid: u64,
@@ -316,6 +403,12 @@ where
       }
       ClientMessage::ConnectToExisting { uid } => {
         execute!(self.connect_to_existing(stream.clone(), uid).await?)
+      }
+      ClientMessage::MakeClue { uid, word, clue } => {
+        execute!(self.make_clue(uid, word, clue).await?)
+      }
+      ClientMessage::BuildXWord => {
+        execute!(self.build_xword().await?)
       }
       ClientMessage::PositionUpdate { uid, pos } => {
         execute!(self.position_update(uid, pos).await?)

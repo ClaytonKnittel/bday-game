@@ -9,7 +9,7 @@ use common::{
   msg::{read_message_from_wire, DecodeMessageResult},
   util::AsyncWriteT,
 };
-use server_state::ServerState;
+use server_state::{read_dict, ServerState, XWORD_PATH, XWORD_SCRATCH_PATH};
 use tokio::{
   fs::{self, File},
   io::AsyncWriteExt,
@@ -18,11 +18,6 @@ use tokio::{
   time::sleep,
 };
 use util::{bitcode, error::TermgameResult};
-use xword_dict::XWordDict;
-
-const XWORD_PATH: &str = "../xword_gen/crossword.bin";
-const XWORD_SCRATCH_PATH: &str = "./crossword_scratch.bin";
-const DICT_PATH: &str = "../xword_gen/dict.bin";
 
 async fn handle_connection(
   stream: TcpStream,
@@ -49,10 +44,6 @@ where
       save_scratch(scratch).await?;
     }
   }
-}
-
-async fn read_dict() -> TermgameResult<XWordDict> {
-  Ok(bitcode::decode(&fs::read(DICT_PATH).await?)?)
 }
 
 async fn load_crossword() -> TermgameResult<Option<(Crossword, Crossword)>> {
