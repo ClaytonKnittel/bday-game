@@ -84,18 +84,16 @@ impl XWordDict {
     })
   }
 
-  pub fn add_clue(&mut self, word: String, clue_txt: String) {
-    *self
-      .dict
-      .entry(word)
-      .or_default()
+  pub fn set_clue(&mut self, word: String, clue_txt: String) {
+    let map = self.dict.entry(word).or_default();
+    map.clear();
+    *map
       .entry(DictEntry {
         publisher: "n/a".to_owned(),
         publish_year: 2025,
         clue: clue_txt,
       })
-      // Make the word occur many times so it will alaways be selected in top_n_words
-      .or_default() += 100_000;
+      .or_default() += 1;
   }
 
   pub fn get_clue(&self, word: &str) -> impl Iterator<Item = &DictEntry> + '_ {

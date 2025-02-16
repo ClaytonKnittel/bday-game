@@ -57,6 +57,7 @@ enum Action {
 enum State {
   Prompt {
     clue_map: HashMap<u64, (String, String)>,
+    solving: bool,
   },
   Crossword {
     crossword_answers: Crossword,
@@ -76,7 +77,7 @@ where
 {
   pub fn new() -> Self {
     Self {
-      state: State::Prompt { clue_map: HashMap::new() },
+      state: State::Prompt { clue_map: HashMap::new(), solving: false },
       clients: HashMap::new(),
       next_uid: 0,
     }
@@ -86,14 +87,17 @@ where
     &mut self,
     clue_map: HashMap<u64, (String, String)>,
   ) -> TermgameResult<Option<Crossword>> {
-    let dict = read_dict().await?;
+    let mut dict = read_dict().await?;
     let mut words: Vec<_> = dict
       .top_n_words(160_000)
       .into_iter()
       .map(|word| word.to_owned())
       .collect_vec();
 
-    let required_words = clue_map.into_values().map(|(word, _)| word).collect_vec();
+    let required_words = clue_map
+      .values()
+      .map(|(word, _)| word.clone())
+      .collect_vec();
     words.extend(required_words.iter().cloned());
     println!("Making crossword with {required_words:?}");
 
@@ -105,6 +109,10 @@ where
     println!("Took {}s", time.as_secs_f32());
 
     if let Some(solution) = solution {
+      for (word, clue) in clue_map.values() {
+        dict.set_clue(word.clone(), clue.clone());
+      }
+
       let crossword = Crossword::make_clues(solution, &dict)?;
       Ok(Some(crossword))
     } else {
@@ -174,11 +182,9 @@ where
     for action in actions {
       match action {
         Action::Respond(message) => {
-          println!("Responding {message:?}");
           write_message_to_wire(&mut *stream.lock().await, message).await?
         }
         Action::Broadcast(message) => {
-          println!("broadcasting {message:?}");
           for (_, context) in self.live_connections_mut() {
             context.write_message(message.clone()).await?;
           }
@@ -264,7 +270,7 @@ where
       && word.chars().all(|c| c.is_ascii_alphabetic())
     {
       match &mut self.state {
-        State::Prompt { clue_map } => {
+        State::Prompt { clue_map, .. } => {
           clue_map.insert(uid, (word.to_ascii_lowercase(), clue));
         }
         _ => {
@@ -275,12 +281,26 @@ where
     Ok(empty())
   }
 
+  async fn build(&mut self, clue_map: HashMap<u64, (String, String)>) -> TermgameResult {
+    if let Some(crossword) = self.make_crossword(clue_map).await? {
+      save_crossword(&crossword).await?;
+      let scratch = crossword.clone_clearing_tiles();
+      self.state = State::Crossword { crossword_answers: crossword, scratch };
+    }
+    Ok(())
+  }
+
   async fn build_xword(&mut self) -> TermgameResult<impl Iterator<Item = Action>> {
-    if let State::Prompt { clue_map } = &self.state {
-      if let Some(crossword) = self.make_crossword(clue_map.clone()).await? {
-        save_crossword(&crossword).await?;
-        let scratch = crossword.clone_clearing_tiles();
-        self.state = State::Crossword { crossword_answers: crossword, scratch }
+    if let State::Prompt { clue_map, solving } = &mut self.state {
+      if !*solving {
+        *solving = true;
+        let clue_map = clue_map.clone();
+
+        let result = self.build(clue_map).await;
+        if let State::Prompt { solving, .. } = &mut self.state {
+          *solving = false;
+        }
+        result?;
       }
     }
 
