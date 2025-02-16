@@ -25,7 +25,7 @@ use util::{
   variant::Variant2,
 };
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWord, XWordTraits, XWordWithRequired};
+use xword_gen::xword::{XWordTraits, XWordWithRequired};
 
 use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
 
@@ -35,36 +35,6 @@ pub const DICT_PATH: &str = "../xword_gen/dict.bin";
 
 pub async fn read_dict() -> TermgameResult<XWordDict> {
   Ok(bitcode::decode(&fs::read(DICT_PATH).await?)?)
-}
-
-const fn sunday() -> &'static str {
-  "________X_______X______
-   ________X_______X______
-   ________X_______X______
-   ___X______X____X___X___
-   ____XX_____X______X____
-   ______X_____XX____X____
-   XXX____X____X____X_____
-   ___X_____X______X______
-   ________X_____X_____XXX
-   _____X_______XXX_______
-   _____XX_____X______X___
-   ____X_____________X____
-   ___X______X_____XX_____
-   _______XXX_______X_____
-   XXX_____X_____X________
-   ______X______X_____X___
-   _____X____X____X____XXX
-   ____X____XX_____X______
-   ____X______X_____XX____
-   ___X___X____X______X___
-   ______X_______X________
-   ______X_______X________
-   ______X_______X________"
-}
-
-fn make_easy() -> TermgameResult<Grid<XWordTile>> {
-  XWord::build_grid(sunday())
 }
 
 async fn mega() -> TermgameResult<Grid<XWordTile>> {
@@ -132,7 +102,7 @@ where
     words.extend(required_words.iter().cloned());
     println!("Making crossword with {required_words:?}");
 
-    let xword = XWordWithRequired::from_grid(make_easy()?, required_words, words)?;
+    let xword = XWordWithRequired::from_grid(mega().await?, required_words, words)?;
 
     let (time, solution) = time_fn(|| xword.solve());
 
@@ -322,13 +292,8 @@ where
           println!("Unexpected make clue from {uid}!");
         }
       }
-    } else {
-      match &mut self.state {
-        State::Prompt { clue_map, .. } => {
-          clue_map.remove(&uid);
-        }
-        _ => {}
-      }
+    } else if let State::Prompt { clue_map, .. } = &mut self.state {
+      clue_map.remove(&uid);
     }
     Ok(empty())
   }
