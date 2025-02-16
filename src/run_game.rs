@@ -211,8 +211,8 @@ async fn play(client: &mut Client, uid: u64, admin: bool) -> TermgameResult {
   Ok(())
 }
 
-pub async fn play_puzzle(admin: bool) -> TermgameResult {
-  let mut client = Client::new().await?;
+pub async fn play_puzzle(host: &str, admin: bool) -> TermgameResult {
+  let mut client = Client::new(host).await?;
   let uid = load_player_info(&mut client).await?;
 
   let result = play(&mut client, uid, admin).await;

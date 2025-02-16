@@ -37,7 +37,7 @@ where
   W: AsyncWriteT,
 {
   loop {
-    sleep(Duration::from_secs(5)).await;
+    sleep(Duration::from_secs(2)).await;
     let mut server_state = server_state.lock().await;
     server_state.cleanup_dead_clients().await;
     if let Some(scratch) = server_state.scratch() {
@@ -75,7 +75,7 @@ async fn save_scratch(scratch: &Crossword) -> TermgameResult {
 }
 
 async fn run_server() -> TermgameResult {
-  let addr = format!("127.0.0.1:{PORT}");
+  let addr = format!("10.0.0.181:{PORT}");
   let listener = TcpListener::bind(addr).await?;
 
   let state = if let Some((crossword, scratch)) = load_crossword().await? {

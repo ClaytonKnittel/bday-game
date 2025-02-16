@@ -17,4 +17,7 @@ pub struct Args {
 
   #[arg(long)]
   pub admin: bool,
+
+  #[arg(long, default_value = "cknittel.com")]
+  pub host: String,
 }

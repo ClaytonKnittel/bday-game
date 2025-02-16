@@ -59,10 +59,10 @@ impl Client {
     }))
   }
 
-  pub async fn new() -> TermgameResult<Self> {
+  pub async fn new(host: &str) -> TermgameResult<Self> {
     let (tx, rx) = mpsc::unbounded_channel();
 
-    let stream = TcpStream::connect(format!("127.0.0.1:{PORT}")).await?;
+    let stream = TcpStream::connect(format!("{host}:{PORT}")).await?;
     let (rstream, wstream) = stream.into_split();
 
     Self::start_listening_thread(rstream, tx)?;
