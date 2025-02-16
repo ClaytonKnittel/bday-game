@@ -19,7 +19,7 @@ use tokio::{
 use util::{
   bitcode,
   error::{TermgameError, TermgameResult},
-  grid::Grid,
+  grid::{Grid, Gridlike},
   pos::Pos,
   time::time_fn,
   variant::Variant2,
@@ -62,6 +62,7 @@ enum State {
   Crossword {
     crossword_answers: Crossword,
     scratch: Crossword,
+    done: bool,
   },
 }
 
@@ -123,7 +124,7 @@ where
 
   pub fn with_crossword(crossword_answers: Crossword, scratch: Crossword) -> Self {
     Self {
-      state: State::Crossword { crossword_answers, scratch },
+      state: State::Crossword { crossword_answers, scratch, done: false },
       clients: HashMap::new(),
       next_uid: 0,
     }
@@ -151,6 +152,20 @@ where
     } else {
       None
     }
+  }
+
+  fn is_finished(&self) -> bool {
+    self.crossword_answers().is_some_and(|answers| {
+      self.scratch().is_some_and(|scratch| {
+        answers.grid().positions().all(|pos| {
+          match (answers.grid().get(pos), scratch.grid().get(pos)) {
+            (Some(t1), Some(t2)) => t1 == t2,
+            (None, None) => true,
+            _ => false,
+          }
+        })
+      })
+    })
   }
 
   fn assign_new_uid(&mut self) -> u64 {
@@ -285,7 +300,11 @@ where
     if let Some(crossword) = self.make_crossword(clue_map).await? {
       save_crossword(&crossword).await?;
       let scratch = crossword.clone_clearing_tiles();
-      self.state = State::Crossword { crossword_answers: crossword, scratch };
+      self.state = State::Crossword {
+        crossword_answers: crossword,
+        scratch,
+        done: false,
+      };
     }
     Ok(())
   }
@@ -327,6 +346,11 @@ where
     if matches!(tile, XWordTile::Wall) {
       return Err(TermgameError::Internal("Cannot place wall tiles".to_owned()).into());
     }
+    if let State::Crossword { done, .. } = self.state {
+      if done {
+        return Ok(Variant2::Opt1(empty()));
+      }
+    }
 
     let xword_tile = self
       .scratch_mut()
@@ -335,10 +359,9 @@ where
     match xword_tile {
       XWordTile::Empty | XWordTile::Letter(_) => {
         *xword_tile = tile.clone();
-        Ok(once(Action::Broadcast(ServerMessage::TileUpdate {
-          pos,
-          tile,
-        })))
+        Ok(Variant2::Opt2(once(Action::Broadcast(
+          ServerMessage::TileUpdate { pos, tile },
+        ))))
       }
       XWordTile::Wall => {
         Err(TermgameError::Internal(format!("Cannot modify wall tile at {pos}")).into())
@@ -354,6 +377,14 @@ where
         .tile(pos)
       {
         let response = ServerMessage::CheckTile { pos, tile: tile.clone() };
+        if self.is_finished() {
+          if let State::Crossword { done, .. } = &mut self.state {
+            println!("Crossword is done!");
+            *done = true
+          } else {
+            println!("Crossword is done, but state is wrong!");
+          }
+        }
         Variant2::Opt1(
           [
             Action::Respond(response.clone()),
