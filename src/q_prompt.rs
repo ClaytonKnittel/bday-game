@@ -27,11 +27,7 @@ impl QPrompt {
         "Enter a custom clue and answer:".to_owned(),
         50,
       ),
-      answer: TextBox::new(
-        Pos { x: 10, y: 12 },
-        "____________".to_owned(),
-        MAX_CLUE_LEN,
-      ),
+      answer: TextBox::new(Pos { x: 10, y: 12 }, "_________".to_owned(), MAX_CLUE_LEN),
       clue: TextBox::new(Pos { x: 10, y: 14 }, "".to_owned(), 50),
       on_answer: true,
       actions: vec![],

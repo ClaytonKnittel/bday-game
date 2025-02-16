@@ -89,7 +89,7 @@ where
   ) -> TermgameResult<Option<Crossword>> {
     let mut dict = read_dict().await?;
     let mut words: Vec<_> = dict
-      .top_n_words(170_000)
+      .top_n_words(180_000)
       .into_iter()
       .map(|word| word.to_owned())
       .collect_vec();
