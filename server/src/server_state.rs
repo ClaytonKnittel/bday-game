@@ -43,7 +43,7 @@ async fn mega() -> TermgameResult<Grid<XWordTile>> {
 
 async fn save_crossword(crossword: &Crossword) -> TermgameResult {
   let result = bitcode::encode(crossword.grid());
-  let mut file = File::create(XWORD_SCRATCH_PATH).await?;
+  let mut file = File::create(XWORD_PATH).await?;
   file.write_all(&result).await?;
   Ok(())
 }
@@ -174,9 +174,11 @@ where
     for action in actions {
       match action {
         Action::Respond(message) => {
+          println!("Responding {message:?}");
           write_message_to_wire(&mut *stream.lock().await, message).await?
         }
         Action::Broadcast(message) => {
+          println!("broadcasting {message:?}");
           for (_, context) in self.live_connections_mut() {
             context.write_message(message.clone()).await?;
           }
