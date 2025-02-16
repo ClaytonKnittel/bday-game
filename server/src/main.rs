@@ -103,7 +103,7 @@ async fn run_server() -> TermgameResult {
   }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 40)]
 async fn main() -> ExitCode {
   if let Err(err) = run_server().await {
     println!("Error: {err}");

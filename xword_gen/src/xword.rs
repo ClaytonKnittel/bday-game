@@ -1130,7 +1130,10 @@ impl XWordTraits for XWordWithRequired {
       .find_map(|required_words_solution| {
         self
           .build_grid_from_assignments(self.board().clone(), required_words_solution)
-          .map(|board| XWordImpl::<Rc<WordBank>>::with_bank(board, self.bank.clone()))
+          .map(|board| {
+            println!("Board:\n{board}");
+            XWordImpl::<Rc<WordBank>>::with_bank(board, self.bank.clone())
+          })
           .and_then(|xword| xword.solve_parallel())
           .transpose()
       })

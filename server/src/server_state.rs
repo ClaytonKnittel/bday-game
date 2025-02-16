@@ -25,7 +25,7 @@ use util::{
   variant::Variant2,
 };
 use xword_dict::XWordDict;
-use xword_gen::xword::{XWordTraits, XWordWithRequired};
+use xword_gen::xword::{XWord, XWordTraits, XWordWithRequired};
 
 use crate::client_context::{AuthenticatedLiveClient, ClientContext, LiveClient};
 
@@ -35,6 +35,36 @@ pub const DICT_PATH: &str = "../xword_gen/dict.bin";
 
 pub async fn read_dict() -> TermgameResult<XWordDict> {
   Ok(bitcode::decode(&fs::read(DICT_PATH).await?)?)
+}
+
+const fn sunday() -> &'static str {
+  "________X_______X______
+   ________X_______X______
+   ________X_______X______
+   ___X______X____X___X___
+   ____XX_____X______X____
+   ______X_____XX____X____
+   XXX____X____X____X_____
+   ___X_____X______X______
+   ________X_____X_____XXX
+   _____X_______XXX_______
+   _____XX_____X______X___
+   ____X_____________X____
+   ___X______X_____XX_____
+   _______XXX_______X_____
+   XXX_____X_____X________
+   ______X______X_____X___
+   _____X____X____X____XXX
+   ____X____XX_____X______
+   ____X______X_____XX____
+   ___X___X____X______X___
+   ______X_______X________
+   ______X_______X________
+   ______X_______X________"
+}
+
+fn make_easy() -> TermgameResult<Grid<XWordTile>> {
+  XWord::build_grid(sunday())
 }
 
 async fn mega() -> TermgameResult<Grid<XWordTile>> {
@@ -90,7 +120,7 @@ where
   ) -> TermgameResult<Option<Crossword>> {
     let mut dict = read_dict().await?;
     let mut words: Vec<_> = dict
-      .top_n_words(180_000)
+      .top_n_words(190_000)
       .into_iter()
       .map(|word| word.to_owned())
       .collect_vec();
@@ -102,7 +132,7 @@ where
     words.extend(required_words.iter().cloned());
     println!("Making crossword with {required_words:?}");
 
-    let xword = XWordWithRequired::from_grid(mega().await?, required_words, words)?;
+    let xword = XWordWithRequired::from_grid(make_easy()?, required_words, words)?;
 
     let (time, solution) = time_fn(|| xword.solve());
 
@@ -292,11 +322,20 @@ where
           println!("Unexpected make clue from {uid}!");
         }
       }
+    } else {
+      match &mut self.state {
+        State::Prompt { clue_map, .. } => {
+          clue_map.remove(&uid);
+        }
+        _ => {}
+      }
     }
     Ok(empty())
   }
 
   async fn build(&mut self, clue_map: HashMap<u64, (String, String)>) -> TermgameResult {
+    // let clue_map:HashMap<_,_> = [(14, ("heuristic", "shortcut or approximation")), (15, ("greenbean", "Long boi of the vegetable kingdom, good when spicy")), (3, ("yuck", "Gross, as from a child")), (16, ("umbrella", "rain shield")), (1, ("network", "Fishing effort?")), (12, ("bart", "screaming metal tunnel dragon")), (19, ("lego", "A birthday or Christmas gift children dream for.")), (0, ("freelunch", "The best part about working at Google (two words)")), (8, ("jacky", "Austen's Favorite Nickname")), (11, ("balboa", "This European explorer was credited for discovering the Pacific Ocean in 1513; he was promptly beheaded 6 years later. Multiple establishments in SF are named him.")), (2, ("moonbeam", "nocturnal silver illumination / sounds like a pokemon move")), (4, ("ogee", "This is a feature that defines many historic windows across San Francisco")), (6, ("seoultaco", "best restaurant in stl!")), (7, ("cremia", "a 12% saturated fat ice cream brand, as opposed to the normal 8% saturated fat, that can be found primarily in Japan")), (10, ("odyssey", "what mario goes on in this 2017 game")), (13, ("albatross", "The definitively largest, biggest, and most beautiful flighted bird")), (5, ("fish", "Big ____ - Vince Staples (\"I was up late night ballin'\")")), (17, ("potato", "clayton's least favorite food")), /*(9, ("remy", "best knittel")),*/ (18, ("galapagos", "island by the equator"))].into_iter().map(|(uid, (w, c))| (uid, (w.to_owned(), c.to_owned()))).collect();
+    println!("Clues: {clue_map:?}");
     if let Some(crossword) = self.make_crossword(clue_map).await? {
       save_crossword(&crossword).await?;
       let scratch = crossword.clone_clearing_tiles();

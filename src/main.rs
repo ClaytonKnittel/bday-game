@@ -229,7 +229,7 @@ fn show_dlx_iters() -> TermgameResult {
 async fn run() -> TermgameResult {
   let args = Args::parse();
   match args.mode {
-    RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::DisjointRegions),
+    RunMode::InteractiveGrid => interactive_grid(InteractiveGridMode::WordLengthSat),
     RunMode::Progress => show_dlx_iters(),
     RunMode::Play => play_puzzle(&args.host, args.admin).await,
   }
