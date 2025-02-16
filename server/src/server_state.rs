@@ -231,7 +231,7 @@ where
   ) -> TermgameResult<impl Iterator<Item = Action>> {
     let new_uid = self.assign_new_uid();
 
-    let client_ctx = ClientContext::new(stream);
+    let client_ctx = ClientContext::new(stream, new_uid);
     let old_val = self.clients.insert(new_uid, client_ctx);
     debug_assert!(old_val.is_none());
 

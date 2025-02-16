@@ -26,12 +26,15 @@ impl<W> ClientContext<W>
 where
   W: AsyncWriteT,
 {
-  pub fn new(stream: Arc<Mutex<W>>) -> Self {
+  pub fn new(stream: Arc<Mutex<W>>, uid: u64) -> Self {
+    let r = ((uid / 16) % 6) as u8;
+    let g = ((5 + uid * 5) % 6) as u8;
+    let b = ((4 + uid / 4) % 6) as u8;
     Self {
       state: ClientState::Live(LiveClient::new(stream)),
       player_info: PlayerInfo {
         pos: Pos::zero(),
-        color: color::AnsiValue::rgb(2, 3, 4).into(),
+        color: color::AnsiValue::rgb(r, g, b).into(),
       },
     }
   }
