@@ -2,7 +2,10 @@ use std::{any::Any, mem};
 
 use common::{config::MAX_CLUE_LEN, msg::ClientMessage};
 use termgame::{draw::Draw, entity::Entity, window::WindowDimensions, Key};
-use util::{error::TermgameResult, pos::Pos};
+use util::{
+  error::TermgameResult,
+  pos::{Diff, Pos},
+};
 
 use crate::textbox::TextBox;
 
@@ -120,6 +123,10 @@ impl Entity for QPrompt {
     } else {
       self.answer.text().clone()
     };
+
+    self
+      .clue
+      .set_pos(Pos { x: 10, y: 12 } + Diff::DY * (self.clue.display_height() as i32 - 1));
 
     self.actions.push(ClientMessage::MakeClue {
       uid: self.uid,

@@ -17,6 +17,10 @@ impl TextBox {
     Self { src, text, line_len, fixed_width: false }
   }
 
+  pub fn set_pos(&mut self, pos: Pos) {
+    self.src = pos;
+  }
+
   pub fn text(&self) -> &String {
     &self.text
   }
