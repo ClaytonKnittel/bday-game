@@ -25,7 +25,7 @@ fn build_and_save_dict_from_xd(xd_path: &str) -> TermgameResult {
   )?;
 
   for &(word, clue_txt) in CUSTOM_CLUES.iter() {
-    dict.add_clue(word.to_owned(), clue_txt.to_owned());
+    dict.set_clue(word.to_owned(), clue_txt.to_owned());
   }
 
   let result = bitcode::encode(&dict);
